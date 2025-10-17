@@ -9,7 +9,8 @@ contract StayProofNFT is ERC721 {
     uint256 private s_tokenCounter;
     mapping(uint256 => string) private s_tokenIdToUri;
 
-    constructor(address _hotelRegistry) ERC721("BookingNft", "BNFT") {
+    // BNFT -> SNFT
+    constructor(address _hotelRegistry) ERC721("StayNft", "SNFT") {
         s_tokenCounter = 1;
         HotelRegistry = _hotelRegistry;
     }
@@ -17,7 +18,7 @@ contract StayProofNFT is ERC721 {
     function mintNft(
         address to,
         string memory tokenUri
-    ) external onlyHotel() returns (uint256) {
+    ) external onlyHotel returns (uint256) {
         uint256 tokenId = s_tokenCounter++;
         s_tokenIdToUri[tokenId] = tokenUri;
         _safeMint(to, tokenId);
@@ -30,12 +31,13 @@ contract StayProofNFT is ERC721 {
         return s_tokenIdToUri[tokenId];
     }
 
+    // Is burn needed for Stay?
     function burnNft(uint256 tokenId) external onlyHotel {
         _burn(tokenId);
     }
 
     modifier onlyHotel() {
-        require(msg.sender == HotelRegistry , "Only Hotel can mint");
+        require(msg.sender == HotelRegistry, "Only Hotel can mint");
         _;
     }
 }

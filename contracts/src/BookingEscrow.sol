@@ -2,15 +2,17 @@
 
 pragma solidity ^0.8.19;
 
-import "../src/BookingNft.sol";
+import {BookingNft} from "../src/BookingNft.sol";
+import {HotelRegistry} from "../src/HotelRegistry.sol";
 
 contract BookingEscrow {
     uint256 private s_bookingCounter;
     BookingNft private s_bookingNft;
+    HotelRegistry private s_hotelRegistry;
 
     mapping(uint256 => Booking) private s_bookingIdToBooking;
     mapping(address => uint256[]) private s_userToBookingIds;
-    mapping(address => uint256[]) private s_hotelToBookingIds;
+    mapping(uint256 => uint256[]) private s_hotelIdToBookingIds;
 
     enum BookingStatus {
         Booked,
@@ -20,7 +22,7 @@ contract BookingEscrow {
 
     struct Booking {
         address user;
-        address hotel;
+        uint256 hotelId;
         uint256 amount;
         uint256 nftId;
         BookingStatus bookingStatus;
@@ -31,18 +33,20 @@ contract BookingEscrow {
     event BookingCreated(Booking booking);
     event BookingCancelled(Booking booking);
 
-    constructor() {
+    constructor(address hotelRegistry) {
         s_bookingCounter = 0;
         s_bookingNft = new BookingNft(address(this));
+        s_hotelRegistry = HotelRegistry(hotelRegistry);
     }
 
     // User deposits funds & books
     function bookHotel(
-        address hotelWallet,
+        uint256 hotelId,
         uint256 roomPrice,
         string memory tokenUri
     ) external payable returns (uint256) {
         require(msg.value == roomPrice, "Incorrect payment amount");
+        require(hotelId < s_hotelRegistry.hotelCount(), "Invalid Hotel Id");
 
         // Mint NFT -> Booking
         uint256 nftId = s_bookingNft.mintNft(msg.sender, tokenUri);
@@ -50,14 +54,14 @@ contract BookingEscrow {
         s_bookingCounter++;
         Booking memory newBooking = Booking({
             user: msg.sender,
-            hotel: hotelWallet,
+            hotelId: hotelId,
             amount: roomPrice,
             nftId: nftId,
             bookingStatus: BookingStatus.Booked
         });
         s_bookingIdToBooking[s_bookingCounter] = newBooking;
         s_userToBookingIds[msg.sender].push(s_bookingCounter);
-        s_hotelToBookingIds[hotelWallet].push(s_bookingCounter);
+        s_hotelIdToBookingIds[hotelId].push(s_bookingCounter);
 
         emit BookingCreated(newBooking);
         return s_bookingCounter;
@@ -65,6 +69,10 @@ contract BookingEscrow {
 
     // Release funds on Check-In to hotel
     function checkInHotel(uint256 bookingId) external {
+        require(
+            bookingId <= s_bookingCounter && bookingId != 0,
+            "Invalid Booking Id"
+        );
         Booking storage currentBooking = s_bookingIdToBooking[bookingId];
 
         require(
@@ -81,8 +89,12 @@ contract BookingEscrow {
         // Burn Nft -> Check-In Complete
         s_bookingNft.burnNft(currentBooking.nftId);
 
+        address hotelWallet = s_hotelRegistry
+            .getHotel(currentBooking.hotelId)
+            .owner;
+
         // Release funds to Hotel
-        (bool callSuccess, ) = payable(currentBooking.hotel).call{
+        (bool callSuccess, ) = payable(hotelWallet).call{
             value: currentBooking.amount
         }("");
         require(callSuccess, "Call failed");
@@ -92,6 +104,10 @@ contract BookingEscrow {
 
     // Releases funds on Cancellation
     function cancelBooking(uint256 bookingId) external {
+        require(
+            bookingId <= s_bookingCounter && bookingId != 0,
+            "Invalid Booking Id"
+        );
         Booking storage currentBooking = s_bookingIdToBooking[bookingId];
 
         require(
@@ -122,6 +138,8 @@ contract BookingEscrow {
         address user
     ) external view returns (Booking[] memory) {
         uint256[] memory bookingIds = s_userToBookingIds[user];
+
+        require(bookingIds.length > 0, "User has no bookings");
         Booking[] memory userBookings = new Booking[](bookingIds.length);
 
         for (uint256 i = 0; i < bookingIds.length; i++) {
@@ -133,14 +151,20 @@ contract BookingEscrow {
 
     function getBooking(
         uint256 bookingId
-    ) external view returns (Booking memory) {
+    ) public view returns (Booking memory) {
+        require(
+            bookingId <= s_bookingCounter && bookingId != 0,
+            "Invalid Booking Id"
+        );
         return s_bookingIdToBooking[bookingId];
     }
 
     function getHotelBookings(
-        address hotel
-    ) external view returns (Booking[] memory) {
-        uint256[] memory bookingIds = s_hotelToBookingIds[hotel];
+        uint256 hotelId
+    ) public view returns (Booking[] memory) {
+        require(hotelId < s_hotelRegistry.hotelCount(), "Invalid Hotel Id");
+
+        uint256[] memory bookingIds = s_hotelIdToBookingIds[hotelId];
         Booking[] memory hotelBookings = new Booking[](bookingIds.length);
 
         for (uint256 i = 0; i < bookingIds.length; i++) {
