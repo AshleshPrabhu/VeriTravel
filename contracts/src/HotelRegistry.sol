@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
+import "./StayProofNFT.sol";
 
 contract HotelRegistry {
     address public owner; 
     uint256 public hotelCount;
+    StayProofNFT public staynft;
 
     enum Status { PENDING, VERIFIED, REJECTED }
 
@@ -20,12 +22,15 @@ contract HotelRegistry {
         uint256 totalbookings;
         uint256 totalRatingValue; 
         uint256 totalRatingCount;
+        string[]images;
+        string[]tags;
     }
 
     mapping(uint256 => Hotel) public hotels;
     mapping(address => bool) public authorizedCallers;
     mapping(address => mapping(uint256 => bool)) public userStayed; 
     mapping(address => mapping(uint256 => bool)) public hasRated;
+    mapping(address => mapping(uint256 => uint256)) public stayNftId;
 
 
     event HotelRegistered(uint256 indexed hotelId, address indexed owner, string name, string location, string ipfshash, uint256 pricePerNight, uint256 timestamp);
@@ -57,6 +62,7 @@ contract HotelRegistry {
     constructor() {
         owner = msg.sender;
         hotelCount = 0;
+        staynft = new StayProofNFT(address(this));
     }
 
     function setAuthorizedCaller(address caller, bool allowed) external onlyAdmin {
@@ -70,7 +76,9 @@ contract HotelRegistry {
         string memory _description,
         string memory _location,
         string memory _ipfshash,
-        uint256 _pricepernight
+        uint256 _pricepernight,
+        string[] memory _tags,
+        string[] memory _images
     ) public {
         require(bytes(_name).length > 0, "Hotel name cannot be empty");
         require(bytes(_description).length > 0, "Hotel description cannot be empty");
@@ -90,25 +98,13 @@ contract HotelRegistry {
             ratings: 0,
             totalbookings: 0,
             totalRatingValue: 0,
-            totalRatingCount: 0
+            totalRatingCount: 0,
+            images: _images,
+            tags: _tags
         });
         hotels[hotelCount] = currhotel;
         emit HotelRegistered(hotelCount, msg.sender, _name, _location, _ipfshash, _pricepernight, block.timestamp);
         hotelCount++;
-    }
-
-    function verifyHotel(uint256 _hotelid) public onlyAdmin {
-        require(_hotelid < hotelCount, "hotelid is not valid");
-        require(hotels[_hotelid].status == Status.PENDING, "Hotel is not in pending state");
-        hotels[_hotelid].status = Status.VERIFIED;
-        emit HotelVerified(_hotelid, msg.sender, block.timestamp);
-    }
-
-    function rejectHotel(uint256 _hotelid) public onlyAdmin {
-        require(_hotelid < hotelCount, "hotelid is not valid");
-        require(hotels[_hotelid].status == Status.PENDING, "Hotel is not in pending state");
-        hotels[_hotelid].status = Status.REJECTED;
-        emit HotelRejected(_hotelid, msg.sender, block.timestamp);
     }
     
     function updateHotel(
@@ -116,13 +112,17 @@ contract HotelRegistry {
         string memory _newIpfsHash,
         string memory _newDescription,
         string memory _newLocation,
-        uint256 _newPricePerNight
+        uint256 _newPricePerNight,
+        string[]memory _tags,
+        string[]memory _images
     ) public onlyHotelOwner(_hotelid) {
         require(_hotelid < hotelCount, "hotelid is not valid");
         hotels[_hotelid].ipfshash = _newIpfsHash;
         hotels[_hotelid].description = _newDescription;
         hotels[_hotelid].location = _newLocation;
         hotels[_hotelid].pricepernight = _newPricePerNight;
+        hotels[_hotelid].tags = _tags;
+        hotels[_hotelid].images = _images;
 
         emit HotelUpdated(_hotelid, _newIpfsHash, _newPricePerNight, block.timestamp);
     }
@@ -134,19 +134,12 @@ contract HotelRegistry {
         emit HotelOwnerChanged(_hotelid, old, _newowner, block.timestamp);
     }
 
-    function markUserStayed(uint256 _hotelid, address _user) public {
-        require(_hotelid < hotelCount, "invalid hotel id");
-        require(
-            authorizedCallers[msg.sender] || msg.sender == hotels[_hotelid].owner || msg.sender == owner,
-            "not authorized to mark stay"
-        );
+    function ConfirmStay(uint256 _hotelid,address _user,string memory tokenUri)public onlyHotelOwner(_hotelid){
         userStayed[_user][_hotelid] = true;
-        emit UserStayedMarked(_hotelid, _user, block.timestamp);
-    }
-
-    function incrementBookings(uint256 _hotelid) public onlyAuthorizedCaller {
-        require(_hotelid < hotelCount, "invalid hotel id");
         hotels[_hotelid].totalbookings++;
+        uint256 nftId = staynft.mintNft(_user, tokenUri);
+        stayNftId[_user][_hotelid] = nftId;
+        emit UserStayedMarked(_hotelid, _user, block.timestamp);
     }
 
     function rateHotel(uint256 _hotelid, uint8 _rating) public {
@@ -179,7 +172,8 @@ contract HotelRegistry {
                 return hotels[i];
             }
         }
-        return Hotel(0, "", address(0), "", "", "", 0, Status.PENDING, 0, 0, 0, 0);
+        string[] memory emptyArray = new string[](0);
+        return Hotel(0, "", address(0), "", "", "", 0, Status.PENDING, 0, 0, 0, 0, emptyArray, emptyArray);
     }
 
     function getHotel(uint256 _hotelid) public view returns (Hotel memory) {
