@@ -15,3 +15,5 @@ docs/
 
 # Local Anvil chain state
 anvil-data
+
+node_modules/
