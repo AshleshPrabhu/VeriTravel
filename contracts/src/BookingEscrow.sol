@@ -29,10 +29,24 @@ contract BookingEscrow {
     }
 
     // Events
-    event CheckedIn(Booking booking);
-    event BookingCreated(Booking booking);
-    event BookingCancelled(Booking booking);
-
+    event CheckedIn(
+        address indexed user,
+        uint256 indexed hotelId,
+        uint256 indexed bookingId,
+        uint256 nftId
+    );
+    event BookingCreated(
+        address indexed user,
+        uint256 indexed hotelId,
+        uint256 indexed bookingId,
+        uint256 nftId
+    );
+    event BookingCancelled(
+        address indexed user,
+        uint256 indexed hotelId,
+        uint256 indexed bookingId,
+        uint256 nftId
+    );
     constructor(address hotelRegistry) {
         s_bookingCounter = 0;
         s_bookingNft = new BookingNft(address(this));
@@ -63,7 +77,12 @@ contract BookingEscrow {
         s_userToBookingIds[msg.sender].push(s_bookingCounter);
         s_hotelIdToBookingIds[hotelId].push(s_bookingCounter);
 
-        emit BookingCreated(newBooking);
+        emit BookingCreated(
+            newBooking.user,
+            newBooking.hotelId,
+            s_bookingCounter,
+            newBooking.nftId
+        );
         return s_bookingCounter;
     }
 
@@ -99,7 +118,12 @@ contract BookingEscrow {
         }("");
         require(callSuccess, "Call failed");
 
-        emit CheckedIn(currentBooking);
+        emit CheckedIn(
+            currentBooking.user,
+            currentBooking.hotelId,
+            bookingId,
+            currentBooking.nftId
+        );
     }
 
     // Releases funds on Cancellation
@@ -130,7 +154,12 @@ contract BookingEscrow {
         }("");
         require(callSuccess, "Call failed");
 
-        emit BookingCancelled(currentBooking);
+        emit BookingCancelled(
+            currentBooking.user,
+            currentBooking.hotelId,
+            bookingId,
+            currentBooking.nftId
+        );
     }
 
     // Getters
