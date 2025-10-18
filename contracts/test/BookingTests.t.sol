@@ -95,6 +95,11 @@ contract BookingIntegrationTest is Test {
                 BookingEscrow.BookingStatus.Cancelled
         );
 
+        // NFT is non-transferable
+        vm.expectRevert("This NFT is non-transferable");
+        vm.prank(USER);
+        bookingNft.transferFrom(USER, HOTEL, nftId);
+
         // Booking NFT is burned
         vm.expectRevert();
         bookingNft.ownerOf(nftId);

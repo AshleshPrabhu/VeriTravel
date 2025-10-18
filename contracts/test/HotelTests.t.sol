@@ -193,6 +193,11 @@ contract HotelIntegrationTest is Test {
         uint256 nftId = hotelRegistry.stayNftId(USER, 0);
         assertEq(stayNFT.ownerOf(nftId), USER);
         assertEq(stayNFT.balanceOf(USER), 1);
+
+        // NFT is non-transferable
+        vm.expectRevert("This NFT is non-transferable");
+        vm.prank(USER);
+        stayNFT.transferFrom(USER, HOTEL_OWNER, nftId);
     }
 
     /*

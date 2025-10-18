@@ -36,8 +36,23 @@ contract BookingNft is ERC721 {
         _burn(tokenId);
     }
 
+    // Access control
     modifier onlyEscrow() {
         require(msg.sender == bookingEscrow, "Only Escrow can mint");
         _;
+    }
+
+    // Non-transferable
+    function _update(
+        address to,
+        uint256 tokenId,
+        address auth
+    ) internal virtual override returns (address) {
+        // Allow only mint (from 0) or burn (to 0)
+        if (to != address(0) && auth != address(0)) {
+            revert("This NFT is non-transferable");
+        }
+
+        return super._update(to, tokenId, auth);
     }
 }

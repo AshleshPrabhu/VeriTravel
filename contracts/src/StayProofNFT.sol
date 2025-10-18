@@ -9,7 +9,6 @@ contract StayProofNFT is ERC721 {
     uint256 private s_tokenCounter;
     mapping(uint256 => string) private s_tokenIdToUri;
 
-    // BNFT -> SNFT
     constructor(address _hotelRegistry) ERC721("StayNft", "SNFT") {
         s_tokenCounter = 1;
         HotelRegistry = _hotelRegistry;
@@ -31,7 +30,6 @@ contract StayProofNFT is ERC721 {
         return s_tokenIdToUri[tokenId];
     }
 
-    // Is burn needed for Stay?
     function burnNft(uint256 tokenId) external onlyHotel {
         _burn(tokenId);
     }
@@ -39,5 +37,19 @@ contract StayProofNFT is ERC721 {
     modifier onlyHotel() {
         require(msg.sender == HotelRegistry, "Only Hotel can mint");
         _;
+    }
+
+    // Non-transferable
+    function _update(
+        address to,
+        uint256 tokenId,
+        address auth
+    ) internal virtual override returns (address) {
+        // Allow only mint (from 0) or burn (to 0)
+        if (to != address(0) && auth != address(0)) {
+            revert("This NFT is non-transferable");
+        }
+
+        return super._update(to, tokenId, auth);
     }
 }
