@@ -8,10 +8,13 @@ ROOM_PRICE=2
 build:; forge build
 
 deploy-sepolia:
-	forge script script/DeployBooking.s.sol:DeployBooking --rpc-url $(SEPOLIA_RPC_URL) --private-key $(SEPOLIA_PRIVATE_KEY) --broadcast --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+	forge script script/DeployHotelBooking.s.sol:DeployHotelBooking --rpc-url $(SEPOLIA_RPC_URL) --private-key $(SEPOLIA_PRIVATE_KEY) --broadcast --verify --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+
+verify-sepolia:
+	forge verify-contract --chain sepolia --watch $(ADDRESS) src/${MyContract}.sol:${MyContract} --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
 
 deploy:
-	forge script script/DeployBooking.s.sol:DeployBooking --rpc-url $(RPC_URL) --private-key $(PRIVATE_KEY) --broadcast -vvvv
+	forge script script/DeployHotelBooking.s.sol:DeployHotelBooking --rpc-url $(RPC_URL) --private-key $(PRIVATE_KEY) --broadcast -vvvv
 
 start-anvil:
 	anvil --state $(ANVIL_STATE_DIR)

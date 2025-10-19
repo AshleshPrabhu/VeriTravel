@@ -56,11 +56,12 @@ contract BookingEscrow {
     // User deposits funds & books
     function bookHotel(
         uint256 hotelId,
-        uint256 roomPrice,
         string memory tokenUri
     ) external payable returns (uint256) {
-        require(msg.value == roomPrice, "Incorrect payment amount");
         require(hotelId < s_hotelRegistry.hotelCount(), "Invalid Hotel Id");
+
+        uint256 roomPrice = s_hotelRegistry.getHotel(hotelId).pricepernight;
+        require(msg.value == roomPrice, "Incorrect payment amount");
 
         // Mint NFT -> Booking
         uint256 nftId = s_bookingNft.mintNft(msg.sender, tokenUri);
