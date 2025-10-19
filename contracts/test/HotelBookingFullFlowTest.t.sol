@@ -18,11 +18,15 @@ contract HotelBookingFullFlowTest is Test {
 
     uint256 constant STARTING_OWNER_BALANCE = 10 ether;
     uint256 constant STARTING_USER_BALANCE = 10 ether;
+    uint256 constant CHECK_IN_DATE = 1766505600;
+    uint256 constant CHECK_OUT_DATE = 1766764800;
+    uint256 constant DURATION = (CHECK_OUT_DATE - CHECK_IN_DATE) / 1 days;
 
     string constant HOTEL_NAME = "Sunset Resort";
     string constant HOTEL_DESC = "Beautiful seaside resort";
     string constant HOTEL_LOCATION = "Goa, India";
     uint256 constant HOTEL_PRICE = 2 ether;
+    uint256 constant TOTAL_PRICE = HOTEL_PRICE * DURATION;
     string[] HOTEL_TAGS = ["Beach", "Luxury"];
     string[] HOTEL_IMAGES = [
         "ipfs://QmaKg2LbPVmujAYLfyPaf9xsqqdVLoG19wg3fNn8hopcFP",
@@ -73,10 +77,10 @@ contract HotelBookingFullFlowTest is Test {
         BookingNft bookingNft = BookingNft(bookingEscrow.getBookingNft());
 
         vm.prank(USER);
-        uint256 bookingId = bookingEscrow.bookHotel{value: HOTEL_PRICE}(
+        uint256 bookingId = bookingEscrow.bookHotel{value: TOTAL_PRICE}(
             0,
-            HOTEL_PRICE,
-            BOOKING_TOKEN_URI
+            CHECK_IN_DATE,
+            CHECK_OUT_DATE
         );
 
         // BookingNFT minted
@@ -85,8 +89,8 @@ contract HotelBookingFullFlowTest is Test {
         assertEq(bookingNft.balanceOf(USER), 1);
 
         // User balance reduced, escrow holds funds
-        assertEq(USER.balance, STARTING_USER_BALANCE - HOTEL_PRICE);
-        assertEq(address(bookingEscrow).balance, HOTEL_PRICE);
+        assertEq(USER.balance, STARTING_USER_BALANCE - TOTAL_PRICE);
+        assertEq(address(bookingEscrow).balance, TOTAL_PRICE);
 
         /*
             User Checks In via BookingEscrow
@@ -95,7 +99,7 @@ contract HotelBookingFullFlowTest is Test {
         bookingEscrow.checkInHotel(bookingId);
 
         // Funds transferred to hotel
-        assertEq(HOTEL_OWNER.balance, STARTING_OWNER_BALANCE + HOTEL_PRICE);
+        assertEq(HOTEL_OWNER.balance, STARTING_OWNER_BALANCE + TOTAL_PRICE);
         assertEq(address(bookingEscrow).balance, 0);
 
         // Booking NFT burned
@@ -108,7 +112,7 @@ contract HotelBookingFullFlowTest is Test {
         */
         StayProofNFT stayNFT = hotelRegistry.staynft();
         vm.prank(HOTEL_OWNER);
-        hotelRegistry.ConfirmStay(0, USER, STAY_TOKEN_URI);
+        hotelRegistry.ConfirmStay(0, USER);
 
         // userStayed should be true
         assertTrue(hotelRegistry.userStayed(USER, 0));

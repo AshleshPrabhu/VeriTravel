@@ -180,7 +180,7 @@ contract HotelIntegrationTest is Test {
         StayProofNFT stayNFT = hotelRegistry.staynft();
 
         vm.prank(HOTEL_OWNER);
-        hotelRegistry.ConfirmStay(0, USER, TOKEN_URI);
+        hotelRegistry.ConfirmStay(0, USER);
 
         // userStayed should be true
         assertTrue(hotelRegistry.userStayed(USER, 0));
@@ -220,7 +220,7 @@ contract HotelIntegrationTest is Test {
         );
 
         vm.prank(HOTEL_OWNER);
-        hotelRegistry.ConfirmStay(0, USER, TOKEN_URI);
+        hotelRegistry.ConfirmStay(0, USER);
 
         vm.prank(USER);
         hotelRegistry.rateHotel(0, 5);

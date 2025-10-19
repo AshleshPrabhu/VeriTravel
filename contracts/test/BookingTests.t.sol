@@ -17,11 +17,15 @@ contract BookingIntegrationTest is Test {
 
     uint256 constant STARTING_HOTEL_BALANCE = 10 ether;
     uint256 constant STARTING_USER_BALANCE = 10 ether;
+    uint256 constant CHECK_IN_DATE = 1766505600;
+    uint256 constant CHECK_OUT_DATE = 1766764800;
+    uint256 constant DURATION = (CHECK_OUT_DATE - CHECK_IN_DATE) / 1 days;
 
     string constant HOTEL_NAME = "Sunset Resort";
     string constant HOTEL_DESC = "Beautiful seaside resort";
     string constant HOTEL_LOCATION = "Goa, India";
     uint256 constant HOTEL_PRICE = 2 ether;
+    uint256 constant TOTAL_PRICE = HOTEL_PRICE * DURATION;
     string[] HOTEL_TAGS = ["Beach", "Luxury"];
     string[] HOTEL_IMAGES = [
         "ipfs://QmaKg2LbPVmujAYLfyPaf9xsqqdVLoG19wg3fNn8hopcFP",
@@ -65,15 +69,15 @@ contract BookingIntegrationTest is Test {
         BookingNft bookingNft = BookingNft(nftAddress);
 
         vm.prank(USER);
-        uint256 bookingId = bookingEscrow.bookHotel{value: HOTEL_PRICE}(
+        uint256 bookingId = bookingEscrow.bookHotel{value: TOTAL_PRICE}(
             0,
-            HOTEL_PRICE,
-            BOOKING_TOKEN_URI
+            CHECK_IN_DATE,
+            CHECK_OUT_DATE
         );
 
         // Booking created + Funds transferred to escrow
-        assert(USER.balance == (STARTING_USER_BALANCE - HOTEL_PRICE));
-        assert(address(bookingEscrow).balance == HOTEL_PRICE);
+        assert(USER.balance == (STARTING_USER_BALANCE - TOTAL_PRICE));
+        assert(address(bookingEscrow).balance == TOTAL_PRICE);
         assert(
             bookingEscrow.getBooking(bookingId).bookingStatus ==
                 BookingEscrow.BookingStatus.Booked
@@ -129,14 +133,14 @@ contract BookingIntegrationTest is Test {
         BookingNft bookingNft = BookingNft(nftAddress);
 
         vm.prank(USER);
-        uint256 bookingId = bookingEscrow.bookHotel{value: HOTEL_PRICE}(
+        uint256 bookingId = bookingEscrow.bookHotel{value: TOTAL_PRICE}(
             0,
-            HOTEL_PRICE,
-            BOOKING_TOKEN_URI
+            CHECK_IN_DATE,
+            CHECK_OUT_DATE
         );
 
-        assert(USER.balance == (STARTING_USER_BALANCE - HOTEL_PRICE));
-        assert(address(bookingEscrow).balance == HOTEL_PRICE);
+        assert(USER.balance == (STARTING_USER_BALANCE - TOTAL_PRICE));
+        assert(address(bookingEscrow).balance == TOTAL_PRICE);
         assert(
             bookingEscrow.getBooking(bookingId).bookingStatus ==
                 BookingEscrow.BookingStatus.Booked
@@ -151,7 +155,7 @@ contract BookingIntegrationTest is Test {
         vm.prank(USER);
         bookingEscrow.checkInHotel(bookingId);
 
-        assert(HOTEL.balance == (STARTING_HOTEL_BALANCE) + HOTEL_PRICE);
+        assert(HOTEL.balance == (STARTING_HOTEL_BALANCE) + TOTAL_PRICE);
         assert(address(bookingEscrow).balance == 0);
         assert(
             bookingEscrow.getBooking(bookingId).bookingStatus ==

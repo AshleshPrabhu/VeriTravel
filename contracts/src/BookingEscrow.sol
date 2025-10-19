@@ -4,6 +4,8 @@ pragma solidity ^0.8.19;
 
 import {BookingNft} from "../src/BookingNft.sol";
 import {HotelRegistry} from "../src/HotelRegistry.sol";
+import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 contract BookingEscrow {
     uint256 private s_bookingCounter;
@@ -21,10 +23,13 @@ contract BookingEscrow {
     }
 
     struct Booking {
+        uint256 bookingId;
         address user;
         uint256 hotelId;
         uint256 amount;
         uint256 nftId;
+        uint256 checkInDate;
+        uint256 checkOutDate;
         BookingStatus bookingStatus;
     }
 
@@ -39,7 +44,9 @@ contract BookingEscrow {
         address indexed user,
         uint256 indexed hotelId,
         uint256 indexed bookingId,
-        uint256 nftId
+        uint256 nftId,
+        uint256 checkInDate,
+        uint256 checkOutDate
     );
     event BookingCancelled(
         address indexed user,
@@ -56,24 +63,61 @@ contract BookingEscrow {
     // User deposits funds & books
     function bookHotel(
         uint256 hotelId,
-        string memory tokenUri
+        uint256 checkInDate,
+        uint256 checkOutDate
     ) external payable returns (uint256) {
         require(hotelId < s_hotelRegistry.hotelCount(), "Invalid Hotel Id");
+        require(checkOutDate > checkInDate, "Check-out must be after Check-in");
+        require(
+            checkInDate >= block.timestamp,
+            "Check-in cannot be in the past"
+        );
 
         uint256 roomPrice = s_hotelRegistry.getHotel(hotelId).pricepernight;
-        require(msg.value == roomPrice, "Incorrect payment amount");
+        uint256 duration = (checkOutDate - checkInDate) / 1 days;
+        uint256 totalPrice = roomPrice * duration;
+        require(msg.value == totalPrice, "Incorrect payment amount");
+
+        // NFT metadata
+        string memory json = string(
+            abi.encodePacked(
+                '{"name": "Confirmed booking at ',
+                s_hotelRegistry.getHotel(hotelId).name,
+                '", "check_in": "',
+                Strings.toString(checkInDate),
+                '", "check_out": "',
+                Strings.toString(checkOutDate),
+                '", "hotel_id": "',
+                Strings.toString(hotelId),
+                '", "booking_id": "',
+                Strings.toString(s_bookingCounter + 1),
+                '", "status": "Booked"}'
+            )
+        );
+
+        // Base64 encode and prefix for NFT
+        string memory tokenUri = string(
+            abi.encodePacked(
+                "data:application/json;base64,",
+                Base64.encode(bytes(json))
+            )
+        );
 
         // Mint NFT -> Booking
         uint256 nftId = s_bookingNft.mintNft(msg.sender, tokenUri);
 
         s_bookingCounter++;
         Booking memory newBooking = Booking({
+            bookingId: s_bookingCounter,
             user: msg.sender,
             hotelId: hotelId,
-            amount: roomPrice,
+            amount: roomPrice * duration,
             nftId: nftId,
+            checkInDate: checkInDate,
+            checkOutDate: checkOutDate,
             bookingStatus: BookingStatus.Booked
         });
+
         s_bookingIdToBooking[s_bookingCounter] = newBooking;
         s_userToBookingIds[msg.sender].push(s_bookingCounter);
         s_hotelIdToBookingIds[hotelId].push(s_bookingCounter);
@@ -81,8 +125,10 @@ contract BookingEscrow {
         emit BookingCreated(
             newBooking.user,
             newBooking.hotelId,
-            s_bookingCounter,
-            newBooking.nftId
+            newBooking.bookingId,
+            newBooking.nftId,
+            newBooking.checkInDate,
+            newBooking.checkOutDate
         );
         return s_bookingCounter;
     }
@@ -122,7 +168,7 @@ contract BookingEscrow {
         emit CheckedIn(
             currentBooking.user,
             currentBooking.hotelId,
-            bookingId,
+            currentBooking.bookingId,
             currentBooking.nftId
         );
     }
@@ -158,7 +204,7 @@ contract BookingEscrow {
         emit BookingCancelled(
             currentBooking.user,
             currentBooking.hotelId,
-            bookingId,
+            currentBooking.bookingId,
             currentBooking.nftId
         );
     }

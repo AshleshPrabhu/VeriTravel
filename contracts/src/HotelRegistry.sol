@@ -3,6 +3,8 @@
 pragma solidity ^0.8.19;
 
 import "./StayProofNFT.sol";
+import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 contract HotelRegistry {
     address public owner;
@@ -193,11 +195,32 @@ contract HotelRegistry {
     // Check Out from Hotel
     function ConfirmStay(
         uint256 _hotelid,
-        address _user,
-        string memory tokenUri
+        address _user
     ) public onlyHotelOwner(_hotelid) {
         userStayed[_user][_hotelid] = true;
         hotels[_hotelid].totalbookings++;
+
+        // NFT metadata
+        string memory json = string(
+            abi.encodePacked(
+                '{"name": "Proof of stay at ',
+                hotels[_hotelid].name,
+                '", "location": "',
+                hotels[_hotelid].location,
+                '", "hotel_id": "',
+                Strings.toString(_hotelid),
+                '", "status": "Stayed"}'
+            )
+        );
+
+        // Base64 encode and prefix for NFT
+        string memory tokenUri = string(
+            abi.encodePacked(
+                "data:application/json;base64,",
+                Base64.encode(bytes(json))
+            )
+        );
+
         uint256 nftId = staynft.mintNft(_user, tokenUri);
         stayNftId[_user][_hotelid] = nftId;
         emit UserStayedMarked(_hotelid, _user, block.timestamp);
