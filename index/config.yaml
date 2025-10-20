@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: envio-indexer
+networks:
+- id: 11155111
+  start_block: 0
+  contracts:
+  - name: HotelRegistry
+    address:
+    - 0x584340512a0615669eBFF1A42Cbbea307282F9e7
+    handler: src/EventHandlers.ts
+    events:
+    - event: HotelRated(uint256 indexed hotelId, address indexed user, uint8 rating, uint256 averageRating, uint256 totalRatings, uint256 timestamp)
+    - event: HotelRegistered(uint256 indexed hotelId, address indexed owner, string name, string location, uint256 pricePerNight, uint256 timestamp, uint8 stars, string[] tags)
+    - event: HotelUpdated(uint256 indexed hotelId, address indexed owner, string name, string location, uint256 pricePerNight, uint256 timestamp, uint8 stars, string[] tags)
+unordered_multichain_mode: true
+preload_handlers: true
