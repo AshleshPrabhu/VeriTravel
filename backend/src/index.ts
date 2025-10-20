@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import http from 'http';
 import axios from 'axios';
-import { app } from './app.js';
+import app  from './app.js';
 import { Server } from 'socket.io';
 
 dotenv.config({ path: './.env' });

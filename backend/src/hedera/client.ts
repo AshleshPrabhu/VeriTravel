@@ -1,19 +1,32 @@
-
-import { Client } from "@hashgraph/sdk";
-import dotenv from "dotenv";
+import { Client, PrivateKey, AccountId } from "@hashgraph/sdk";
+import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-export const hederaClient = (() => {
-    const network = process.env.HEDERA_NETWORK || "testnet";
-    const client =
-        network === "mainnet" ? Client.forMainnet() : Client.forTestnet();
+let hederaClient: Client;
 
-    client.setOperator(
-        process.env.HEDERA_ACCOUNT_ID!,
-        process.env.HEDERA_PRIVATE_KEY!
-    );
+try {
+    const operatorId = AccountId.fromString(process.env.HEDERA_ACCOUNT_ID || "");
+    const operatorKey = PrivateKey.fromString(process.env.HEDERA_PRIVATE_KEY || "");
+    
+    if (process.env.HEDERA_NETWORK === "testnet") {
+        hederaClient = Client.forTestnet();
+    } else if (process.env.HEDERA_NETWORK === "mainnet") {
+        hederaClient = Client.forMainnet();
+    } else {
+        // Default to testnet
+        hederaClient = Client.forTestnet();
+    }
+    
+    hederaClient.setOperator(operatorId, operatorKey);
+    
+    console.log("Hedera client initialized successfully");
+    console.log("Network:", process.env.HEDERA_NETWORK);
+    console.log("Operator ID:", operatorId.toString());
+    
+} catch (error) {
+    console.error("Failed to initialize Hedera client:", error);
+    throw error;
+}
 
-    console.log(`Hedera client connected to ${network}`);
-    return client;
-})();
+export { hederaClient };
