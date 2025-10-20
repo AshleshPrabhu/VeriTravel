@@ -4,20 +4,21 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
-contract StayProofNFT is ERC721 {
-    address private immutable HotelRegistry;
+contract BookingNft is ERC721 {
+    address private immutable bookingEscrow;
     uint256 private s_tokenCounter;
     mapping(uint256 => string) private s_tokenIdToUri;
 
-    constructor(address _hotelRegistry) ERC721("StayNft", "SNFT") {
+    constructor(address _bookingEscrow) ERC721("BookingNft", "BNFT") {
         s_tokenCounter = 1;
-        HotelRegistry = _hotelRegistry;
+        bookingEscrow = _bookingEscrow;
     }
 
+    // Mint NFT on hotel booking
     function mintNft(
         address to,
         string memory tokenUri
-    ) external onlyHotel returns (uint256) {
+    ) external onlyEscrow returns (uint256) {
         uint256 tokenId = s_tokenCounter++;
         s_tokenIdToUri[tokenId] = tokenUri;
         _safeMint(to, tokenId);
@@ -30,12 +31,14 @@ contract StayProofNFT is ERC721 {
         return s_tokenIdToUri[tokenId];
     }
 
-    function burnNft(uint256 tokenId) external onlyHotel {
+    // Burn NFT on hotel check-in
+    function burnNft(uint256 tokenId) external onlyEscrow {
         _burn(tokenId);
     }
 
-    modifier onlyHotel() {
-        require(msg.sender == HotelRegistry, "Only Hotel can mint");
+    // Access control
+    modifier onlyEscrow() {
+        require(msg.sender == bookingEscrow, "Only Escrow can mint");
         _;
     }
 
