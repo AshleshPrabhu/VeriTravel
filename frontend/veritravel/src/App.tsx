@@ -1,10 +1,15 @@
-import './App.css'
-import SignupPage from './sign-up/page'
+import Header from "@/components/Header/Header";
+import ChatSidebar from "@/components/ChatSidebar";
+import ChatArea from "@/components/ChatArea";
+import ChatView from "./components/ChatView";
+import HotelDashboard from "./components/HotelDashboard";
+import UserDashboard from "./components/UserDashboard";
 
 function App() {
   return (
-      <SignupPage />
-  )
+    // <HotelDashboard />
+    <HotelDashboard />
+  );
 }
 
-export default App
+export default App;
