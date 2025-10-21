@@ -6,7 +6,7 @@ const HotelRegistryABI = {
         {
         "type": "function",
         "name": "getHotel",
-        "inputs": [{"name": "hotelId", "type": "uint256", "internalType": "uint256"}],
+        "inputs": [{"name": "_hotelid", "type": "uint256", "internalType": "uint256"}],
         "outputs": [
             {
             "name": "",
@@ -15,11 +15,20 @@ const HotelRegistryABI = {
             "components": [
                 {"name": "id", "type": "uint256", "internalType": "uint256"},
                 {"name": "name", "type": "string", "internalType": "string"},
+                {"name": "owner", "type": "address", "internalType": "address"},
                 {"name": "location", "type": "string", "internalType": "string"},
                 {"name": "description", "type": "string", "internalType": "string"},
-                {"name": "pricePerNight", "type": "uint256", "internalType": "uint256"},
-                {"name": "owner", "type": "address", "internalType": "address"},
-                {"name": "isActive", "type": "bool", "internalType": "bool"}
+                {"name": "pricepernight", "type": "uint256", "internalType": "uint256"},
+                {"name": "ratings", "type": "uint256", "internalType": "uint256"},
+                {"name": "totalbookings", "type": "uint256", "internalType": "uint256"},
+                {"name": "totalRatingValue", "type": "uint256", "internalType": "uint256"},
+                {"name": "totalRatingCount", "type": "uint256", "internalType": "uint256"},
+                {"name": "images", "type": "string[]", "internalType": "string[]"},
+                {"name": "tags", "type": "string[]", "internalType": "string[]"},
+                {"name": "stars", "type": "uint8", "internalType": "uint8"},
+                {"name": "totalRooms", "type": "uint16", "internalType": "uint16"},
+                {"name": "phone", "type": "string", "internalType": "string"},
+                {"name": "email", "type": "string", "internalType": "string"}
             ]
             }
         ],
@@ -32,11 +41,20 @@ const HotelRegistryABI = {
         "outputs": [
             {"name": "id", "type": "uint256", "internalType": "uint256"},
             {"name": "name", "type": "string", "internalType": "string"},
+            {"name": "owner", "type": "address", "internalType": "address"},
             {"name": "location", "type": "string", "internalType": "string"},
             {"name": "description", "type": "string", "internalType": "string"},
-            {"name": "pricePerNight", "type": "uint256", "internalType": "uint256"},
-            {"name": "owner", "type": "address", "internalType": "address"},
-            {"name": "isActive", "type": "bool", "internalType": "bool"}
+            {"name": "pricepernight", "type": "uint256", "internalType": "uint256"},
+            {"name": "ratings", "type": "uint256", "internalType": "uint256"},
+            {"name": "totalbookings", "type": "uint256", "internalType": "uint256"},
+            {"name": "totalRatingValue", "type": "uint256", "internalType": "uint256"},
+            {"name": "totalRatingCount", "type": "uint256", "internalType": "uint256"},
+            {"name": "images", "type": "string[]", "internalType": "string[]"},
+            {"name": "tags", "type": "string[]", "internalType": "string[]"},
+            {"name": "stars", "type": "uint8", "internalType": "uint8"},
+            {"name": "totalRooms", "type": "uint16", "internalType": "uint16"},
+            {"name": "phone", "type": "string", "internalType": "string"},
+            {"name": "email", "type": "string", "internalType": "string"}
         ],
         "stateMutability": "view"
         },
@@ -45,12 +63,58 @@ const HotelRegistryABI = {
         "name": "registerHotel",
         "inputs": [
             {"name": "_name", "type": "string", "internalType": "string"},
-            {"name": "_location", "type": "string", "internalType": "string"},
             {"name": "_description", "type": "string", "internalType": "string"},
-            {"name": "_pricePerNight", "type": "uint256", "internalType": "uint256"},
-            {"name": "_owner", "type": "address", "internalType": "address"}
+            {"name": "_location", "type": "string", "internalType": "string"},
+            {"name": "_pricepernight", "type": "uint256", "internalType": "uint256"},
+            {"name": "_tags", "type": "string[]", "internalType": "string[]"},
+            {"name": "_images", "type": "string[]", "internalType": "string[]"},
+            {"name": "_stars", "type": "uint8", "internalType": "uint8"},
+            {"name": "_totalRooms", "type": "uint16", "internalType": "uint16"},
+            {"name": "_phone", "type": "string", "internalType": "string"},
+            {"name": "_email", "type": "string", "internalType": "string"}
         ],
-        "outputs": [{"name": "", "type": "uint256", "internalType": "uint256"}],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+        },
+        {
+        "type": "function",
+        "name": "getHotels",
+        "inputs": [],
+        "outputs": [
+            {
+            "name": "",
+            "type": "tuple[]",
+            "internalType": "struct HotelRegistry.Hotel[]",
+            "components": [
+                {"name": "id", "type": "uint256", "internalType": "uint256"},
+                {"name": "name", "type": "string", "internalType": "string"},
+                {"name": "owner", "type": "address", "internalType": "address"},
+                {"name": "location", "type": "string", "internalType": "string"},
+                {"name": "description", "type": "string", "internalType": "string"},
+                {"name": "pricepernight", "type": "uint256", "internalType": "uint256"},
+                {"name": "ratings", "type": "uint256", "internalType": "uint256"},
+                {"name": "totalbookings", "type": "uint256", "internalType": "uint256"},
+                {"name": "totalRatingValue", "type": "uint256", "internalType": "uint256"},
+                {"name": "totalRatingCount", "type": "uint256", "internalType": "uint256"},
+                {"name": "images", "type": "string[]", "internalType": "string[]"},
+                {"name": "tags", "type": "string[]", "internalType": "string[]"},
+                {"name": "stars", "type": "uint8", "internalType": "uint8"},
+                {"name": "totalRooms", "type": "uint16", "internalType": "uint16"},
+                {"name": "phone", "type": "string", "internalType": "string"},
+                {"name": "email", "type": "string", "internalType": "string"}
+            ]
+            }
+        ],
+        "stateMutability": "view"
+        },
+        {
+        "type": "function",
+        "name": "ConfirmStay",
+        "inputs": [
+            {"name": "_hotelid", "type": "uint256", "internalType": "uint256"},
+            {"name": "_user", "type": "address", "internalType": "address"}
+        ],
+        "outputs": [],
         "stateMutability": "nonpayable"
         },
         {
@@ -58,9 +122,13 @@ const HotelRegistryABI = {
         "name": "HotelRegistered",
         "inputs": [
             {"name": "hotelId", "type": "uint256", "indexed": true, "internalType": "uint256"},
+            {"name": "owner", "type": "address", "indexed": true, "internalType": "address"},
             {"name": "name", "type": "string", "indexed": false, "internalType": "string"},
             {"name": "location", "type": "string", "indexed": false, "internalType": "string"},
-            {"name": "owner", "type": "address", "indexed": true, "internalType": "address"}
+            {"name": "pricePerNight", "type": "uint256", "indexed": false, "internalType": "uint256"},
+            {"name": "timestamp", "type": "uint256", "indexed": false, "internalType": "uint256"},
+            {"name": "stars", "type": "uint8", "indexed": false, "internalType": "uint8"},
+            {"name": "tags", "type": "string[]", "indexed": false, "internalType": "string[]"}
         ],
         "anonymous": false
         }
@@ -262,26 +330,51 @@ export class ContractIntegrationService {
 
     async registerHotelComplete(hotelData: {
         name: string;
-        location: string;
         description: string;
+        location: string;
         pricePerNight: number;
-        ownerAddress: string;
+        tags: string[];
+        images: string[];
+        stars: number; 
+        totalRooms: number;
+        phone: string;
+        email: string;
+        ownerAddress?: string;
     }) {
         try {
             console.log('Starting complete hotel registration...');
             
+            if (hotelData.stars < 1 || hotelData.stars > 5) {
+                throw new Error('Stars must be between 1 and 5');
+            }
+            
             console.log('Registering on Ethereum...');
             const ethTx = await (this.hotelRegistry as any).registerHotel(
                 hotelData.name,
-                hotelData.location,
                 hotelData.description,
+                hotelData.location,
                 ethers.parseEther(hotelData.pricePerNight.toString()),
-                hotelData.ownerAddress
+                hotelData.tags,
+                hotelData.images,
+                hotelData.stars,
+                hotelData.totalRooms,
+                hotelData.phone,
+                hotelData.email
             );
             
             const receipt = await ethTx.wait();
-            const hotelRegisteredEvent = receipt.events?.find((e: any) => e.event === 'HotelRegistered');
-            const hotelId = hotelRegisteredEvent?.args?.hotelId?.toNumber();
+            
+            let hotelId;
+            for (const log of receipt.logs) {
+                try {
+                    const parsedLog = this.hotelRegistry.interface.parseLog(log);
+                    if (parsedLog?.name === 'HotelRegistered') {
+                        hotelId = parsedLog.args.hotelId.toString();
+                        break;
+                    }
+                } catch (e) {
+                }
+            }
             
             console.log(`Hotel registered on Ethereum with ID: ${hotelId}`);
             
@@ -306,10 +399,16 @@ export class ContractIntegrationService {
                 // Combined data for database
                 hotelRecord: {
                     name: hotelData.name,
-                    location: hotelData.location,
                     description: hotelData.description,
+                    location: hotelData.location,
                     pricePerNight: hotelData.pricePerNight,
-                    ownerAddress: hotelData.ownerAddress,
+                    tags: hotelData.tags,
+                    images: hotelData.images,
+                    stars: hotelData.stars,
+                    totalRooms: hotelData.totalRooms,
+                    phone: hotelData.phone,
+                    email: hotelData.email,
+                    ownerAddress: hotelData.ownerAddress || await this.signer.getAddress(),
                     ethHotelId: hotelId,
                     ethTxHash: ethTx.hash,
                     hederaAccountId: hederaSetup.hotelAccount.accountId,
@@ -317,6 +416,10 @@ export class ContractIntegrationService {
                     agentAccountId: hederaSetup.agentAccount.accountId,
                     loyaltyTokenId: hederaSetup.loyaltyToken.tokenId,
                     reputationTokenId: hederaSetup.reputationToken.tokenId,
+                    ratings: 0,
+                    totalBookings: 0,
+                    totalRatingValue: 0,
+                    totalRatingCount: 0,
                     isActive: true,
                     createdAt: new Date()
                 }
@@ -452,16 +555,70 @@ export class ContractIntegrationService {
         try {
             const hotel = await (this.hotelRegistry as any).getHotel(hotelId);
             return {
-                id: hotel.id.toNumber(),
+                id: hotel.id.toString(),
                 name: hotel.name,
+                owner: hotel.owner,
                 location: hotel.location,
                 description: hotel.description,
-                pricePerNight: ethers.formatEther(hotel.pricePerNight),
-                owner: hotel.owner,
-                isActive: hotel.isActive
+                pricePerNight: ethers.formatEther(hotel.pricepernight),
+                ratings: hotel.ratings.toString(),
+                totalBookings: hotel.totalbookings.toString(),
+                totalRatingValue: hotel.totalRatingValue.toString(),
+                totalRatingCount: hotel.totalRatingCount.toString(),
+                images: hotel.images,
+                tags: hotel.tags,
+                stars: hotel.stars,
+                totalRooms: hotel.totalRooms,
+                phone: hotel.phone,
+                email: hotel.email
             };
         } catch (error) {
             console.error('Error getting hotel details:', error);
+            throw error;
+        }
+    }
+
+    async getAllHotels() {
+        try {
+            const hotels = await (this.hotelRegistry as any).getHotels();
+            return hotels.map((hotel: any) => ({
+                id: hotel.id.toString(),
+                name: hotel.name,
+                owner: hotel.owner,
+                location: hotel.location,
+                description: hotel.description,
+                pricePerNight: ethers.formatEther(hotel.pricepernight),
+                ratings: hotel.ratings.toString(),
+                totalBookings: hotel.totalbookings.toString(),
+                totalRatingValue: hotel.totalRatingValue.toString(),
+                totalRatingCount: hotel.totalRatingCount.toString(),
+                images: hotel.images,
+                tags: hotel.tags,
+                stars: hotel.stars,
+                totalRooms: hotel.totalRooms,
+                phone: hotel.phone,
+                email: hotel.email
+            }));
+        } catch (error) {
+            console.error('Error getting all hotels:', error);
+            throw error;
+        }
+    }
+
+    async confirmUserStay(hotelId: number, userAddress: string) {
+        try {
+            const tx = await (this.hotelRegistry as any).ConfirmStay(hotelId, userAddress);
+            const receipt = await tx.wait();
+            
+            console.log(`Stay confirmed for user ${userAddress} at hotel ${hotelId}`);
+            
+            return {
+                transactionHash: tx.hash,
+                blockNumber: receipt.blockNumber,
+                success: true
+            };
+        } catch (error) {
+            console.error('Error confirming user stay:', error);
             throw error;
         }
     }
