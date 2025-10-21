@@ -1,16 +1,21 @@
 "use client";
 
-import Header from "@/components/Header/Header";
+import Header, { type HeaderView } from "@/components/Header/Header";
 import ChatSidebar from "@/components/ChatSidebar";
 import ChatArea from "@/components/ChatArea";
 
-export default function ChatView() {
+type ChatViewProps = {
+  activeView?: HeaderView;
+  onNavigate?: (view: HeaderView) => void;
+};
+
+export default function ChatView({ activeView = "chat", onNavigate }: ChatViewProps) {
   return (
-    <div className="h-screen bg-[#E7E3D5] text-black flex flex-col overflow-hidden">
-      <Header />
-      <div className="flex flex-1 pt-24 gap-4 px-4 md:px-8 min-h-0">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#E7E3D5] text-black">
+      <Header activeView={activeView} onNavigate={onNavigate} />
+      <div className="flex min-h-0 flex-1 gap-4 px-4 pt-24 md:px-8">
         <ChatSidebar />
-        <div className="flex-1 min-h-0 rounded-[2rem] border border-gray-400/30 shadow-inner overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden rounded-[2rem] border border-gray-400/30 shadow-inner">
           <ChatArea />
         </div>
       </div>

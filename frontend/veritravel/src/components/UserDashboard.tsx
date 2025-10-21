@@ -4,7 +4,7 @@ import { useState } from "react"
 import { type SubmitHandler, useForm } from "react-hook-form"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import Header from "@/components/Header/Header"
+import Header, { type HeaderView } from "@/components/Header/Header"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -104,7 +104,7 @@ const topDestinations: StayDetails[] = [
 const registerSchema = z.object({
   email: z.string().email("Enter a valid email"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  consent: z.boolean().default(false),
+  consent: z.boolean(),
 })
 
 const shippingSchema = z.object({
@@ -116,7 +116,12 @@ const shippingSchema = z.object({
 type RegisterFormValues = z.infer<typeof registerSchema>
 type ShippingFormValues = z.infer<typeof shippingSchema>
 
-export default function UserDashboard() {
+type UserDashboardProps = {
+  activeView?: HeaderView
+  onNavigate?: (view: HeaderView) => void
+}
+
+export default function UserDashboard({ activeView = "user", onNavigate }: UserDashboardProps) {
   const curatedHotels = [...myBookings, ...topDestinations]
   const [selectedHotel, setSelectedHotel] = useState<StayDetails | null>(curatedHotels[0] ?? null)
   const [ratings, setRatings] = useState<Record<string, number>>({})
@@ -166,7 +171,7 @@ export default function UserDashboard() {
 
   return (
     <div className="min-h-screen bg-[#EDE7D6] text-neutral-900">
-      <Header />
+      <Header activeView={activeView} onNavigate={onNavigate} />
 
       <main className="px-4 pb-20 pt-32 md:px-10">
         <div className="mx-auto flex w-full flex-col gap-14">
@@ -423,7 +428,7 @@ export default function UserDashboard() {
                   </DialogHeader>
                   <Form {...registerForm}>
                     <form
-                      onSubmit={registerForm.handleSubmit<RegisterFormValues>(handleRegisterSubmit)}
+                      onSubmit={registerForm.handleSubmit(handleRegisterSubmit)}
                       className="mt-6 space-y-6"
                     >
                       <FormField
@@ -525,7 +530,7 @@ export default function UserDashboard() {
                   </DialogHeader>
                   <Form {...shippingForm}>
                     <form
-                      onSubmit={shippingForm.handleSubmit<ShippingFormValues>(handleShippingSubmit)}
+                      onSubmit={shippingForm.handleSubmit(handleShippingSubmit)}
                       className="mt-6 space-y-6"
                     >
                       <FormField

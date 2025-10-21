@@ -1,8 +1,19 @@
 "use client";
 
-import Header from "./Header/Header";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import Header, { type HeaderView } from "./Header/Header";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -14,69 +25,255 @@ import {
 } from "@/components/ui/table";
 import {
   ArrowRight,
-  ArrowUpRight,
   ArrowUp,
+  ArrowUpRight,
   Edit3,
   Filter,
+  Loader2,
+  LogOut,
   Star,
 } from "lucide-react";
 
-export default function HotelDashboard() {
-  const stays = [
-    {
-      walletId: "0x8a4c...c21b",
-      checkIn: "12 Oct 2025",
-      checkOut: "18 Oct 2025",
-      amount: "1.20 ETH",
-      nft: "Minted",
-    },
-    {
-      walletId: "0x3b91...9fae",
-      checkIn: "08 Oct 2025",
-      checkOut: "11 Oct 2025",
-      amount: "0.84 ETH",
-      nft: "Pending",
-    },
-    {
-      walletId: "0x57de...aa90",
-      checkIn: "02 Oct 2025",
-      checkOut: "05 Oct 2025",
-      amount: "0.96 ETH",
-      nft: "Minted",
-    },
-    {
-      walletId: "0x24f8...7bc3",
-      checkIn: "28 Sep 2025",
-      checkOut: "01 Oct 2025",
-      amount: "0.73 ETH",
-      nft: "Queued",
-    },
-    {
-      walletId: "0x91f4...0ccd",
-      checkIn: "22 Sep 2025",
-      checkOut: "27 Sep 2025",
-      amount: "1.54 ETH",
-      nft: "In Review",
-    },
-    {
-      walletId: "0xad71...44e1",
-      checkIn: "14 Sep 2025",
-      checkOut: "18 Sep 2025",
-      amount: "1.02 ETH",
-      nft: "Minted",
-    },
-  ];
+type ArrivalState = "awaiting" | "arrived" | "departed";
+type NftState = "Queued" | "Minting" | "Minted";
 
-  const statusStyles: Record<string, string> = {
-    Minted: "bg-[#E1F4E7] text-[#236A42] border-[#B8E4C7]",
-    Pending: "bg-[#FFF6E5] text-[#A76B1F] border-[#F7D9A4]",
-    Queued: "bg-[#E5F0FF] text-[#1F4AA7] border-[#B4D3FF]",
-    "In Review": "bg-[#F0E9FF] text-[#5C36A8] border-[#D4C4FF]",
+type Stay = {
+  id: string;
+  guestName: string;
+  walletId?: string;
+  checkIn?: string;
+  checkOut?: string;
+  amount: string;
+  nftStatus: NftState;
+  nftCode?: string;
+  arrivalState: ArrivalState;
+};
+
+const initialStays: Stay[] = [
+  {
+    id: "stay-1",
+    guestName: "Lena Carter",
+    amount: "1.20 ETH",
+    nftStatus: "Queued",
+    arrivalState: "awaiting",
+  },
+  {
+    id: "stay-2",
+    guestName: "Omar Salim",
+    walletId: "0x3b91...9fae",
+    checkIn: "08 Oct 2025 · 14:20",
+    checkOut: "11 Oct 2025",
+    amount: "0.84 ETH",
+    nftStatus: "Minted",
+    nftCode: "VR-2873",
+    arrivalState: "departed",
+  },
+  {
+    id: "stay-3",
+    guestName: "Nia Rhodes",
+    walletId: "0x57de...aa90",
+    checkIn: "02 Oct 2025 · 16:05",
+    amount: "0.96 ETH",
+    nftStatus: "Minted",
+    nftCode: "VR-2941",
+    arrivalState: "arrived",
+  },
+  {
+    id: "stay-4",
+    guestName: "Marco Díaz",
+    amount: "0.73 ETH",
+    nftStatus: "Queued",
+    arrivalState: "awaiting",
+  },
+  {
+    id: "stay-5",
+    guestName: "Priya Dutta",
+    walletId: "0x91f4...0ccd",
+    checkIn: "22 Sep 2025 · 13:11",
+    checkOut: "27 Sep 2025",
+    amount: "1.54 ETH",
+    nftStatus: "Minted",
+    nftCode: "VR-2710",
+    arrivalState: "departed",
+  },
+  {
+    id: "stay-6",
+    guestName: "Cassie Bell",
+    walletId: "0xad71...44e1",
+    checkIn: "14 Sep 2025 · 09:42",
+    checkOut: "18 Sep 2025",
+    amount: "1.02 ETH",
+    nftStatus: "Minted",
+    nftCode: "VR-2604",
+    arrivalState: "departed",
+  },
+];
+
+const nftStatusStyles: Record<NftState, string> = {
+  Minted: "bg-[#E1F4E7] text-[#236A42] border-[#B8E4C7]",
+  Queued: "bg-[#FFF6E5] text-[#A76B1F] border-[#F7D9A4]",
+  Minting: "bg-[#E5F0FF] text-[#1F4AA7] border-[#B4D3FF]",
+};
+
+const arrivalStyles: Record<ArrivalState, { label: string; className: string }> = {
+  awaiting: {
+    label: "Awaiting Arrival",
+    className: "bg-[#FDEBDD] text-[#A45A1F] border-[#F5CBA7]",
+  },
+  arrived: {
+    label: "Arrived",
+    className: "bg-[#E1F4E7] text-[#236A42] border-[#B8E4C7]",
+  },
+  departed: {
+    label: "Checked Out",
+    className: "bg-[#EBE5F5] text-[#574196] border-[#D5CFF0]",
+  },
+};
+
+type ArrivalFilter = "all" | "arrived" | "awaiting";
+
+const formatDateTime = (date: Date) =>
+  new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+    .format(date)
+    .replace(",", " ·");
+
+type HotelDashboardProps = {
+  activeView?: HeaderView;
+  onNavigate?: (view: HeaderView) => void;
+};
+
+export default function HotelDashboard({
+  activeView = "hotel",
+  onNavigate,
+}: HotelDashboardProps) {
+  const [stays, setStays] = useState<Stay[]>(initialStays);
+  const [filter, setFilter] = useState<ArrivalFilter>("all");
+  const [activeStayId, setActiveStayId] = useState<string | null>(null);
+  const [checkInForm, setCheckInForm] = useState({ walletId: "", nftCode: "" });
+  const mintTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const activeStay = useMemo(
+    () => (activeStayId ? stays.find((stay) => stay.id === activeStayId) ?? null : null),
+    [activeStayId, stays]
+  );
+
+  useEffect(() => {
+    if (activeStay) {
+      setCheckInForm({
+        walletId: activeStay.walletId ?? "",
+        nftCode: activeStay.nftCode ?? "",
+      });
+    } else {
+      setCheckInForm({ walletId: "", nftCode: "" });
+    }
+  }, [activeStay]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(mintTimers.current).forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
+
+  const filteredStays = useMemo(() => {
+    if (filter === "arrived") {
+      return stays.filter((stay) => stay.arrivalState === "arrived");
+    }
+    if (filter === "awaiting") {
+      return stays.filter((stay) => stay.arrivalState === "awaiting");
+    }
+    return stays;
+  }, [filter, stays]);
+
+  const filterCounts = useMemo(
+    () => ({
+      all: stays.length,
+      arrived: stays.filter((stay) => stay.arrivalState === "arrived").length,
+      awaiting: stays.filter((stay) => stay.arrivalState === "awaiting").length,
+    }),
+    [stays]
+  );
+
+  const openCheckInDialog = (stayId: string) => {
+    setActiveStayId(stayId);
+  };
+
+  const closeCheckInDialog = () => {
+    setActiveStayId(null);
+  };
+
+  const handleCheckInSubmit = () => {
+    if (!activeStay) return;
+
+    const checkInTime = formatDateTime(new Date());
+    setStays((prev) =>
+      prev.map((stay) =>
+        stay.id === activeStay.id
+          ? {
+              ...stay,
+              checkIn: checkInTime,
+              walletId: checkInForm.walletId,
+              nftCode: checkInForm.nftCode,
+              arrivalState: "arrived",
+            }
+          : stay
+      )
+    );
+    closeCheckInDialog();
+  };
+
+  const handleCheckout = (stayId: string) => {
+    const checkoutTime = formatDateTime(new Date());
+    setStays((prev) =>
+      prev.map((stay) =>
+        stay.id === stayId
+          ? {
+              ...stay,
+              checkOut: checkoutTime,
+              arrivalState: "departed",
+            }
+          : stay
+      )
+    );
+  };
+
+  const handleMintNFT = (stayId: string) => {
+    if (mintTimers.current[stayId]) return;
+
+    setStays((prev) =>
+      prev.map((stay) =>
+        stay.id === stayId
+          ? {
+              ...stay,
+              nftStatus: "Minting",
+            }
+          : stay
+      )
+    );
+
+    mintTimers.current[stayId] = setTimeout(() => {
+      setStays((prev) =>
+        prev.map((stay) =>
+          stay.id === stayId
+            ? {
+                ...stay,
+                nftStatus: "Minted",
+              }
+            : stay
+        )
+      );
+      delete mintTimers.current[stayId];
+    }, 2200);
   };
 
   return (
     <div className="min-h-screen bg-[#EFEBD9] font-sans">
-      <Header />
+  <Header activeView={activeView} onNavigate={onNavigate} />
 
       <main className="px-4 pb-16 pt-28 sm:px-8 lg:px-12">
         <div className="flex w-full flex-col gap-12">
@@ -84,7 +281,6 @@ export default function HotelDashboard() {
             {/* Hero showcase */}
             <section className="relative w-full overflow-hidden rounded-[36px] border border-black/12 bg-[#DAD7CE]">
               <div className="relative h-[320px] w-full">
-
                 <div className="absolute left-10 top-8 flex gap-3">
                   <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
                     400 SQ FEET
@@ -163,23 +359,43 @@ export default function HotelDashboard() {
           <section className="w-full rounded-[36px] border border-black/12 bg-[#F6F1DF] px-8 pb-10 pt-10">
             <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-neutral-700">
-                <span>Wallet Id</span>
                 <Filter className="h-4 w-4 text-neutral-500" />
+                <span>Filter By Arrival</span>
               </div>
-              <div className="flex items-center gap-3">
-                <Badge className="rounded-full bg-black px-5 py-2 text-xs font-semibold tracking-[0.2em] text-white">
-                  ARRIVED
-                </Badge>
-                <Button className="rounded-full bg-[#1D80FF] px-7 py-5 text-xs font-semibold uppercase tracking-[0.24em] text-white hover:bg-[#196adb]">
-                  Mint Now
-                </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {(
+                  [
+                    { value: "all" as ArrivalFilter, label: "All" },
+                    { value: "arrived" as ArrivalFilter, label: "Arrived" },
+                    { value: "awaiting" as ArrivalFilter, label: "Not Arrived" },
+                  ] satisfies { value: ArrivalFilter; label: string }[]
+                ).map((option) => {
+                  const isActive = filter === option.value;
+                  return (
+                    <Button
+                      key={option.value}
+                      onClick={() => setFilter(option.value)}
+                      variant={isActive ? "default" : "ghost"}
+                      className={`rounded-full border border-black/12 px-5 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${
+                        isActive
+                          ? "bg-black text-white hover:bg-black/90"
+                          : "bg-white text-neutral-700 hover:bg-[#EDE4CB]"
+                      }`}
+                    >
+                      {option.label}
+                      <span className="ml-2 text-[11px] font-medium text-neutral-500">
+                        {filterCounts[option.value] ?? 0}
+                      </span>
+                    </Button>
+                  );
+                })}
               </div>
             </div>
 
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-black/20 text-xs font-semibold uppercase tracking-[0.2em] text-neutral-600">
-                  <TableHead>Wallet Id</TableHead>
+                  <TableHead>Guest</TableHead>
                   <TableHead>Check In</TableHead>
                   <TableHead>Check Out</TableHead>
                   <TableHead className="text-right">Amount Payable</TableHead>
@@ -187,28 +403,91 @@ export default function HotelDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {stays.map((stay, index) => (
-                  <TableRow
-                    key={stay.walletId}
-                    className={index % 2 === 0 ? "bg-white/60" : "bg-transparent"}
-                  >
-                    <TableCell className="font-medium tracking-wide text-neutral-900">
-                      {stay.walletId}
-                    </TableCell>
-                    <TableCell className="text-neutral-700">{stay.checkIn}</TableCell>
-                    <TableCell className="text-neutral-700">{stay.checkOut}</TableCell>
-                    <TableCell className="text-right font-semibold text-neutral-900">
-                      {stay.amount}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span
-                        className={`inline-flex items-center justify-center rounded-full border px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${statusStyles[stay.nft] ?? "bg-white text-neutral-700 border-black/12"}`}
-                      >
-                        {stay.nft}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filteredStays.map((stay, index) => {
+                  const arrivalBadge = arrivalStyles[stay.arrivalState];
+                  return (
+                    <TableRow
+                      key={stay.id}
+                      className={index % 2 === 0 ? "bg-white/60" : "bg-transparent"}
+                    >
+                      <TableCell className="align-top">
+                        <div className="flex flex-col gap-2 text-neutral-900">
+                          <div className="text-sm font-semibold uppercase tracking-[0.16em]">
+                            {stay.guestName}
+                          </div>
+                          <div className="text-xs text-neutral-500">
+                            {stay.walletId ? stay.walletId : "Wallet to be added at check-in"}
+                          </div>
+                          <span
+                            className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${arrivalBadge.className}`}
+                          >
+                            {arrivalBadge.label}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top text-neutral-700">
+                        {stay.arrivalState === "awaiting" ? (
+                          <Button
+                            onClick={() => openCheckInDialog(stay.id)}
+                            variant="outline"
+                            className="rounded-full border-black/20 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-800 hover:bg-[#EDE4CB]"
+                          >
+                            Start Check-In
+                          </Button>
+                        ) : (
+                          <span className="text-sm font-medium text-neutral-800">
+                            {stay.checkIn ?? "—"}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="align-top text-neutral-700">
+                        {stay.arrivalState === "arrived" && !stay.checkOut ? (
+                          <Button
+                            onClick={() => handleCheckout(stay.id)}
+                            variant="ghost"
+                            className="flex items-center gap-2 rounded-full border border-black/12 bg-[#F3F0E6] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-800 hover:bg-[#E4D8BB]"
+                          >
+                            <LogOut className="h-3.5 w-3.5" />
+                            Mark Checkout
+                          </Button>
+                        ) : (
+                          <span className="text-sm font-medium text-neutral-800">
+                            {stay.checkOut ?? "—"}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="align-top text-right font-semibold text-neutral-900">
+                        {stay.amount}
+                      </TableCell>
+                      <TableCell className="align-top text-right">
+                        <div className="flex flex-col items-end gap-2">
+                          <span
+                            className={`inline-flex items-center justify-center gap-2 rounded-full border px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${nftStatusStyles[stay.nftStatus]}`}
+                          >
+                            {stay.nftStatus === "Minting" && (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            )}
+                            {stay.nftStatus}
+                          </span>
+                          {stay.nftStatus === "Queued" && (
+                            <Button
+                              onClick={() => handleMintNFT(stay.id)}
+                              variant="ghost"
+                              className="rounded-full border border-black/12 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-800 hover:bg-[#EDE4CB]"
+                            >
+                              Mint NFT
+                            </Button>
+                          )}
+                          {stay.nftStatus === "Minted" && stay.nftCode && (
+                            <span className="text-[11px] uppercase tracking-[0.16em] text-neutral-500">
+                              Code: {stay.nftCode}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
               <TableCaption className="pt-6 text-left text-xs uppercase tracking-[0.28em] text-neutral-500">
                 Snapshot of on-chain stay settlements · Updated hourly
@@ -217,6 +496,65 @@ export default function HotelDashboard() {
           </section>
         </div>
       </main>
+
+      <Dialog open={!!activeStay} onOpenChange={(open) => (open ? null : closeCheckInDialog())}>
+        <DialogContent className="max-w-lg rounded-3xl border-black/10 bg-[#F6F1DF] p-8">
+          <DialogHeader className="space-y-3">
+            <DialogTitle className="text-2xl font-semibold uppercase tracking-[0.24em] text-neutral-900">
+              Complete Check-In
+            </DialogTitle>
+            <DialogDescription className="text-sm text-neutral-600">
+              Capture the guest wallet and NFT confirmation to mark their arrival. Check-in time locks to the current system clock once saved.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="walletId" className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-700">
+                Wallet Address
+              </Label>
+              <Input
+                id="walletId"
+                value={checkInForm.walletId}
+                onChange={(event) =>
+                  setCheckInForm((prev) => ({ ...prev, walletId: event.target.value }))
+                }
+                placeholder="0x..."
+                className="h-12 rounded-2xl border-black/20 bg-white text-sm text-neutral-900 placeholder:text-neutral-400"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="nftCode" className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-700">
+                NFT Receipt Code
+              </Label>
+              <Input
+                id="nftCode"
+                value={checkInForm.nftCode}
+                onChange={(event) =>
+                  setCheckInForm((prev) => ({ ...prev, nftCode: event.target.value.toUpperCase() }))
+                }
+                placeholder="VR-XXXX"
+                className="h-12 rounded-2xl border-black/20 bg-white text-sm text-neutral-900 placeholder:text-neutral-400"
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-8 flex flex-row justify-end gap-3">
+            <Button
+              onClick={closeCheckInDialog}
+              variant="ghost"
+              className="rounded-full border border-black/12 bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-neutral-700 hover:bg-[#EDE4CB]"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCheckInSubmit}
+              disabled={!checkInForm.walletId || !checkInForm.nftCode}
+              className="rounded-full bg-black px-7 py-3 text-xs font-semibold uppercase tracking-[0.24em] text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:bg-neutral-500"
+            >
+              Lock Check-In
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
