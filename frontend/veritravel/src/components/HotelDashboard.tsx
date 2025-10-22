@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ethers } from "ethers";
+import hotelRegistryContract from "@/contracts/HotelRegistry.json"
+import bookingEscrowContract from "@/contracts/BookingEscrow.json"
+import type { Hotel, Booking } from "@/types";
 
 import Header, { type HeaderView } from "./Header/Header";
 import { Button } from "@/components/ui/button";
@@ -158,10 +162,157 @@ export default function HotelDashboard({
   const [checkInForm, setCheckInForm] = useState({ walletId: "", nftCode: "" });
   const mintTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
+  // Wallet + Contract states
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [hotelContract, setHotelContract] = useState<ethers.Contract | null>(null);
+  const [bookingContract, setBookingContract] = useState<ethers.Contract | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Data retrieved from Smart Contracts
+  const [hotel, setHotel] = useState<Hotel>();
+
   const activeStay = useMemo(
     () => (activeStayId ? stays.find((stay) => stay.id === activeStayId) ?? null : null),
     [activeStayId, stays]
   );
+
+  // Connect Waller & Load Contract
+  const connectWallet = async () => {
+    try {
+      const { ethereum } = window;
+      if (!ethereum) return alert("Install MetaMask");
+
+      const chainId = await ethereum.request({ method: "eth_chainId" });
+      if (chainId !== "0xaa36a7") return alert("Switch to Sepolia");
+
+      const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+      const provider = new ethers.BrowserProvider(ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      setWalletAddress(address);
+
+      const hotelContract = new ethers.Contract(
+        hotelRegistryContract.address,
+        hotelRegistryContract.abi,
+        signer
+      );
+      setHotelContract(hotelContract);
+
+      const bookingContract = new ethers.Contract(
+        bookingEscrowContract.address,
+        bookingEscrowContract.abi,
+        signer
+      );
+      setBookingContract(bookingContract);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to connect wallet");
+    }
+  };
+
+  // === Hotel Contract Functions ====
+  async function registerHotel() {
+    if (!hotelContract)
+      return alert("Connect wallet first");
+    setLoading(true);
+    try {
+      const tx = await hotelContract.registerHotel(
+        "Sea View Inn",
+        "A beautiful beachside hotel",
+        "Goa",
+        ethers.parseEther("0.05"),
+        ["sea", "wifi"],
+        ["img1.jpg"],
+        4,
+        20,
+        "9999999999",
+        "seaview@example.com"
+      );
+      await tx.wait();
+      alert("Hotel registered!");
+    } catch (err) {
+      console.error(err);
+      alert("Error registering hotel");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function confirmStay(hotelId: number, guestAddr: string) {
+    if (!hotelContract)
+      return alert("Connect wallet first");
+    setLoading(true);
+    try {
+      const tx = await hotelContract.ConfirmStay(hotelId, guestAddr);
+      await tx.wait();
+      alert("Stay confirmed, NFT minted!");
+    } catch (err) {
+      console.error(err);
+      alert("Error confirming stay");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // === Load Hotel & Booking Details ===
+  const loadHotelBookings = async () => {
+    if (!hotelContract || !bookingContract) {
+      console.warn("Wallet not connected or contract not initialized");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const hotelData = await hotelContract.getHotelsByOwner(walletAddress);
+
+      if (hotelData) {
+        const formatted: Hotel = {
+          id: hotelData.id,
+          name: hotelData.name,
+          owner: hotelData.owner,
+          location: hotelData.location,
+          description: hotelData.description,
+          pricePerNight: ethers.formatEther(hotelData.pricepernight),
+          ratings: hotelData.ratings,
+          totalBookings: hotelData.totalbookings,
+          totalRatingValue: hotelData.totalRatingValue,
+          totalRatingCount: hotelData.totalRatingCount,
+          stars: Number(hotelData.stars),
+          totalRooms: Number(hotelData.totalRooms),
+          phone: hotelData.phone,
+          email: hotelData.email,
+          tags: hotelData.tags,
+          images: hotelData.images || [],
+        };
+        setHotel(formatted);
+
+        const bookingData = await bookingContract.getHotelBookings(hotelData.id);
+
+        if (bookingData && bookingData.length > 0) {
+          const formattedBookings: Booking[] = bookingData.map((b: any) => ({
+            bookingId: b.bookingId,
+            user: b.user,
+            hotelId: b.hotelId,
+            amount: ethers.formatEther(b.amount),
+            nftId: b.nftId,
+            checkInDate: b.checkInDate,
+            checkOutDate: b.checkOutDate,
+            bookingStatus: b.bookingStatus
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching hotel or bookings", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Loading Hotel Data 
+  // (When contract changes -> Signer)
+  useEffect(() => {
+    loadHotelBookings();
+  }, [hotelContract, bookingContract]);
 
   useEffect(() => {
     if (activeStay) {
@@ -215,12 +366,12 @@ export default function HotelDashboard({
       prev.map((stay) =>
         stay.id === activeStay.id
           ? {
-              ...stay,
-              checkIn: checkInTime,
-              walletId: checkInForm.walletId,
-              nftCode: checkInForm.nftCode,
-              arrivalState: "arrived",
-            }
+            ...stay,
+            checkIn: checkInTime,
+            walletId: checkInForm.walletId,
+            nftCode: checkInForm.nftCode,
+            arrivalState: "arrived",
+          }
           : stay
       )
     );
@@ -233,10 +384,10 @@ export default function HotelDashboard({
       prev.map((stay) =>
         stay.id === stayId
           ? {
-              ...stay,
-              checkOut: checkoutTime,
-              arrivalState: "departed",
-            }
+            ...stay,
+            checkOut: checkoutTime,
+            arrivalState: "departed",
+          }
           : stay
       )
     );
@@ -249,9 +400,9 @@ export default function HotelDashboard({
       prev.map((stay) =>
         stay.id === stayId
           ? {
-              ...stay,
-              nftStatus: "Minting",
-            }
+            ...stay,
+            nftStatus: "Minting",
+          }
           : stay
       )
     );
@@ -261,9 +412,9 @@ export default function HotelDashboard({
         prev.map((stay) =>
           stay.id === stayId
             ? {
-                ...stay,
-                nftStatus: "Minted",
-              }
+              ...stay,
+              nftStatus: "Minted",
+            }
             : stay
         )
       );
@@ -273,23 +424,28 @@ export default function HotelDashboard({
 
   return (
     <div className="min-h-screen bg-[#EFEBD9] font-sans">
-  <Header activeView={activeView} onNavigate={onNavigate} />
+      <Header activeView={activeView} onNavigate={onNavigate} />
 
       <main className="px-4 pb-16 pt-28 sm:px-8 lg:px-12">
         <div className="flex w-full flex-col gap-12">
+
+          {/* {!loading && hotel && ( */}
           <div className="grid w-full gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
             {/* Hero showcase */}
             <section className="relative w-full overflow-hidden rounded-[36px] border border-black/12 bg-[#DAD7CE]">
               <div className="relative h-[320px] w-full">
                 <div className="absolute left-10 top-8 flex gap-3">
                   <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
-                    400 SQ FEET
+                    {hotel?.name}
                   </span>
                   <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
-                    2BHK
+                    {hotel?.tags[0]}
                   </span>
                   <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
-                    POOL
+                    {hotel?.tags[1]}
+                  </span>
+                  <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
+                    {hotel?.tags[2]}
                   </span>
                 </div>
 
@@ -322,7 +478,7 @@ export default function HotelDashboard({
                 <div className="flex items-center justify-between text-[15px]">
                   <div className="uppercase tracking-[0.16em]">Number of Bookings</div>
                   <div className="flex items-center gap-3">
-                    <span className="whitespace-nowrap text-[22px] font-semibold">128</span>
+                    <span className="whitespace-nowrap text-[22px] font-semibold">{hotel?.totalBookings}</span>
                     <span className="flex items-center gap-1 rounded-full border border-black/12 bg-white px-3 py-[6px] text-[12px] font-semibold text-neutral-600">
                       <ArrowUp className="h-3.5 w-3.5" />
                       <span className="whitespace-nowrap">20%</span>
@@ -342,18 +498,21 @@ export default function HotelDashboard({
               <div className="flex items-center justify-between">
                 <div className="flex h-10 items-center gap-3 rounded-full border border-black/12 bg-white px-2">
                   <Star className="h-4 w-4 flex-shrink-0 text-[#F2C94C]" />
-                  <span className="whitespace-nowrap text-sm font-medium uppercase tracking-[0.12em]">4.2 / 5</span>
+                  <span className="whitespace-nowrap text-sm font-medium uppercase tracking-[0.12em]">{hotel?.ratings} / 5</span>
                 </div>
                 <Button
+                  onClick={connectWallet}
                   variant="ghost"
                   className="group rounded-full border border-black/12 bg-[#EDE4CB] px-7 py-[18px] text-sm font-semibold uppercase tracking-[0.18em] text-neutral-900 hover:bg-[#E4D8BB]"
                 >
-                  Generate Insights
+                  {/* Generate Insights */}
+                  {walletAddress ? "Wallet Connected" : "Connect Wallet"}
                   <ArrowUpRight className="ml-2 h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                 </Button>
               </div>
             </aside>
           </div>
+          {/* )} */}
 
           {/* Reservations table */}
           <section className="w-full rounded-[36px] border border-black/12 bg-[#F6F1DF] px-8 pb-10 pt-10">
@@ -376,11 +535,10 @@ export default function HotelDashboard({
                       key={option.value}
                       onClick={() => setFilter(option.value)}
                       variant={isActive ? "default" : "ghost"}
-                      className={`rounded-full border border-black/12 px-5 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${
-                        isActive
-                          ? "bg-black text-white hover:bg-black/90"
-                          : "bg-white text-neutral-700 hover:bg-[#EDE4CB]"
-                      }`}
+                      className={`rounded-full border border-black/12 px-5 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${isActive
+                        ? "bg-black text-white hover:bg-black/90"
+                        : "bg-white text-neutral-700 hover:bg-[#EDE4CB]"
+                        }`}
                     >
                       {option.label}
                       <span className="ml-2 text-[11px] font-medium text-neutral-500">
@@ -489,9 +647,6 @@ export default function HotelDashboard({
                   );
                 })}
               </TableBody>
-              <TableCaption className="pt-6 text-left text-xs uppercase tracking-[0.28em] text-neutral-500">
-                Snapshot of on-chain stay settlements · Updated hourly
-              </TableCaption>
             </Table>
           </section>
         </div>

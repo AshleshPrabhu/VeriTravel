@@ -2,7 +2,7 @@
 name: envio-indexer
 networks:
 - id: 11155111
-  start_block: 0
+  start_block: 9447856
   contracts:
   - name: HotelRegistry
     address:
