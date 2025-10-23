@@ -1,4 +1,6 @@
-import { cn } from "@/lib/utils"
+import { useState } from "react"
+
+import { HotelDetailsDialog, type HotelDetails } from "@/components/HotelDetailsDialog"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -8,11 +10,24 @@ import {
   FieldSeparator,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
+
+type SignupFormProps = React.ComponentProps<"form"> & {
+  includeHotelDetails?: boolean
+}
 
 export function SignupForm({
   className,
+  includeHotelDetails = true,
   ...props
-}: React.ComponentProps<"form">) {
+}: SignupFormProps) {
+  const [hotelDialogOpen, setHotelDialogOpen] = useState(false)
+  const [hotelDetails, setHotelDetails] = useState<HotelDetails | null>(null)
+
+  const handleHotelDetailsSubmit = (details: HotelDetails) => {
+    setHotelDetails(details)
+  }
+
   return (
     <form className={cn("flex flex-col gap-6", className)} {...props}>
       <FieldGroup>
@@ -46,6 +61,26 @@ export function SignupForm({
           <Input id="confirm-password" type="password" required />
           <FieldDescription>Please confirm your password.</FieldDescription>
         </Field>
+        {includeHotelDetails && (
+          <Field>
+            <FieldLabel>Hotel listing</FieldLabel>
+            <div className="flex items-center gap-3">
+              <Button type="button" variant="outline" onClick={() => setHotelDialogOpen(true)}>
+                {hotelDetails ? "Edit hotel details" : "Add hotel details"}
+              </Button>
+              {hotelDetails && (
+                <span className="text-sm text-muted-foreground">
+                  {hotelDetails.name} · {hotelDetails.location} · {hotelDetails.pricePerNight}
+                </span>
+              )}
+            </div>
+            {!hotelDetails && (
+              <FieldDescription>
+                Provide your property information to onboard as a hotel partner.
+              </FieldDescription>
+            )}
+          </Field>
+        )}
         <Field>
           <Button type="submit">Create Account</Button>
         </Field>
@@ -65,6 +100,16 @@ export function SignupForm({
           </FieldDescription>
         </Field>
       </FieldGroup>
+      {includeHotelDetails && (
+        <HotelDetailsDialog
+          open={hotelDialogOpen}
+          onOpenChange={setHotelDialogOpen}
+          initialValues={hotelDetails ?? undefined}
+          onSubmit={handleHotelDetailsSubmit}
+          title="Add hotel details"
+          submitLabel="Save details"
+        />
+      )}
     </form>
   )
 }

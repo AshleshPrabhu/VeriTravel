@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import Header, { type HeaderView } from "./Header/Header";
+import { HotelDetailsDialog, type HotelDetails } from "./HotelDetailsDialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -143,16 +143,16 @@ const formatDateTime = (date: Date) =>
     .format(date)
     .replace(",", " ·");
 
-type HotelDashboardProps = {
-  activeView?: HeaderView;
-  onNavigate?: (view: HeaderView) => void;
-};
-
-export default function HotelDashboard({
-  activeView = "hotel",
-  onNavigate,
-}: HotelDashboardProps) {
+export default function HotelDashboard() {
   const [stays, setStays] = useState<Stay[]>(initialStays);
+  const [hotelDetails, setHotelDetails] = useState<HotelDetails>({
+    name: "Aurora Skyline Residency",
+    location: "Lisbon, Portugal",
+    pricePerNight: "1.20 ETH",
+    rating: "4.2",
+    description: "Panoramic skyline views with tailored concierge support for every guest.",
+  });
+  const [isHotelDialogOpen, setIsHotelDialogOpen] = useState(false);
   const [filter, setFilter] = useState<ArrivalFilter>("all");
   const [activeStayId, setActiveStayId] = useState<string | null>(null);
   const [checkInForm, setCheckInForm] = useState({ walletId: "", nftCode: "" });
@@ -205,6 +205,10 @@ export default function HotelDashboard({
 
   const closeCheckInDialog = () => {
     setActiveStayId(null);
+  };
+
+  const handleHotelDetailsSubmit = (details: HotelDetails) => {
+    setHotelDetails(details);
   };
 
   const handleCheckInSubmit = () => {
@@ -273,8 +277,6 @@ export default function HotelDashboard({
 
   return (
     <div className="min-h-screen bg-[#EFEBD9] font-sans">
-  <Header activeView={activeView} onNavigate={onNavigate} />
-
       <main className="px-4 pb-16 pt-28 sm:px-8 lg:px-12">
         <div className="flex w-full flex-col gap-12">
           <div className="grid w-full gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -296,6 +298,7 @@ export default function HotelDashboard({
                 <button
                   className="absolute right-10 top-8 flex h-11 w-11 items-center justify-center rounded-full border border-black/12 bg-white text-neutral-600"
                   aria-label="Edit listing"
+                  onClick={() => setIsHotelDialogOpen(true)}
                 >
                   <Edit3 className="h-4 w-4" />
                 </button>
@@ -306,6 +309,31 @@ export default function HotelDashboard({
                 >
                   <ArrowRight className="h-5 w-5" />
                 </button>
+
+                <div className="absolute bottom-8 left-10 flex max-w-xl flex-col gap-4 rounded-[28px] border border-black/12 bg-white/80 p-6 text-neutral-800 backdrop-blur-sm">
+                  <div className="space-y-1">
+                    <h2 className="text-2xl font-serif tracking-tight text-neutral-900">
+                      {hotelDetails.name || "Name your hotel"}
+                    </h2>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-600">
+                      {hotelDetails.location || "Add a location"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-sm font-semibold uppercase tracking-[0.16em]">
+                    <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-4 py-2 text-neutral-800">
+                      {hotelDetails.pricePerNight
+                        ? `${hotelDetails.pricePerNight} / night`
+                        : "Set nightly rate"}
+                    </span>
+                    <span className="flex items-center gap-2 rounded-full border border-black/12 bg-white px-4 py-2 text-neutral-800">
+                      <Star className="h-4 w-4 text-[#F2C94C]" />
+                      {hotelDetails.rating ? `${hotelDetails.rating} / 5` : "Rate your stay"}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-relaxed text-neutral-700">
+                    {hotelDetails.description || "Add a short description to let guests know what makes this stay special."}
+                  </p>
+                </div>
               </div>
             </section>
 
@@ -496,6 +524,15 @@ export default function HotelDashboard({
           </section>
         </div>
       </main>
+
+      <HotelDetailsDialog
+        open={isHotelDialogOpen}
+        onOpenChange={setIsHotelDialogOpen}
+        initialValues={hotelDetails}
+        onSubmit={handleHotelDetailsSubmit}
+        title="Edit hotel listing"
+        submitLabel="Save changes"
+      />
 
       <Dialog open={!!activeStay} onOpenChange={(open) => (open ? null : closeCheckInDialog())}>
         <DialogContent className="max-w-lg rounded-3xl border-black/10 bg-[#F6F1DF] p-8">
