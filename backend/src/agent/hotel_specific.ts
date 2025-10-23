@@ -2,16 +2,18 @@ import dotenv from 'dotenv';
 dotenv.config({ path: '../../.env' });
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { createToolCallingAgent, AgentExecutor } from 'langchain/agents';
-import { BufferWindowMemory } from 'langchain/memory';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { Client, PrivateKey, AccountId, ContractId, TopicId, ContractExecuteTransaction, ContractCallQuery, ContractFunctionParameters, Hbar } from '@hashgraph/sdk';
 import { Document } from '@langchain/core/documents';
-import { MemoryVectorStore } from 'langchain/vectorstores/memory';
+import { PineconeStore } from '@langchain/pinecone';
 import { createStuffDocumentsChain } from 'langchain/chains/combine_documents';
 import { createRetrievalChain } from 'langchain/chains/retrieval';
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
-import { Tool } from 'langchain/tools';
+import { DynamicStructuredTool } from '@langchain/core/tools';
+import { z } from 'zod';
 import { HederaLangchainToolkit, coreConsensusPlugin } from 'hedera-agent-kit';
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import { Pinecone as PineconeClient } from '@pinecone-database/pinecone';
 
 export interface TravelAgentConfig{
   id: string;
@@ -23,83 +25,161 @@ export interface TravelAgentConfig{
   escrowContractId: string;
 }
 
-class HotelInfoTool extends Tool{
-  name = 'get_hotel_info';
-  description = 'Retrieve hotel details (e.g., pool hours, checkout time). Input: question string.';
+function createHotelInfoTool(llm: ChatGoogleGenerativeAI, config: TravelAgentConfig, pinecone: PineconeClient){
+  return new DynamicStructuredTool({
+    name: 'get_hotel_info',
+    description: 'Retrieve hotel details (e.g., pool hours, checkout time). Input: question string and hotelId.',
+    schema: z.object({
+      question: z.string().describe('The question about hotel information'),
+      hotelId: z.number().describe('The hotel ID to query information for')
+    }),
+    func: async ({ question, hotelId }) => {
+      try {
+        const embeddings = new GoogleGenerativeAIEmbeddings({
+          model: 'text-embedding-004',
+          apiKey: process.env.GOOGLE_API_KEY!,
+        });
 
-  constructor(private ragChain: any){
-    super();
-  }
+        const namespace = `hotel-${hotelId}`;
+        const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX_NAME || 'hotel-bookings');
+        
+        const vectorStore = await PineconeStore.fromExistingIndex(embeddings,{
+          pineconeIndex,
+          namespace,
+        });
+        
+        const retriever = vectorStore.asRetriever({
+          k: 3,
+          filter: { hotelId }
+        });
 
-  protected async _call(input: string): Promise<string>{
-    const result = await this.ragChain.invoke({ input });
-    return result.answer;
-  }
+        const ragPrompt = ChatPromptTemplate.fromTemplate(`
+          You are ${config.name}, an AI travel agent for hotel bookings on Hedera.
+          Basic info: ${config.basicInfo}
+          Answer the user's question based ONLY on the following retrieved context for Hotel ID ${hotelId}. 
+          If the answer isn't in the context, say so.
+
+          Context:
+          {context}
+
+          Question: {input}
+        `);
+
+        const documentChain = await createStuffDocumentsChain({ llm, prompt: ragPrompt });
+        const ragChain = await createRetrievalChain({ retriever, combineDocsChain: documentChain });
+
+        const result = await ragChain.invoke({ input: question });
+        return result.answer;
+      } catch (error) {
+        return `Error retrieving hotel info: ${error}`;
+      }
+    }
+  });
 }
 
-class ContractCallTool extends Tool{
-  name = 'call_contract_function';
-  description = `
-    Call functions on BookingEscrow contract. Input: JSON string { contractId: string, functionName: string, params: object, value?: number }.
-    Supported functions:
-    - bookHotel: { hotelId: number, checkInDate: number, checkOutDate: number }, value: HBAR amount in tinybars.
-    - checkInHotel: { bookingId: number }.
-    - cancelBooking: { bookingId: number }.
-    - getBooking: { bookingId: number }.
-    - getUserBookings: { user: string }.
-    - getHotelBookings: { hotelId: number }.
-    For bookHotel, checkInHotel, cancelBooking, return transaction bytes for user approval (HITL).
-  `;
+function createContractCallTool(client: Client, contractId: ContractId){
+  return new DynamicStructuredTool({
+    name: 'call_contract_function',
+    description: `Call functions on BookingEscrow contract. Supported functions:
+- bookHotel: Book a hotel room
+- checkInHotel: Check in to a booking
+- cancelBooking: Cancel a booking
+- getBooking: Get booking details
+- getUserBookings: Get all bookings for a user
+- getHotelBookings: Get all bookings for a hotel`,
+    schema: z.object({
+      functionName: z.enum(['bookHotel', 'checkInHotel', 'cancelBooking', 'getBooking', 'getUserBookings', 'getHotelBookings'])
+        .describe('The function to call'),
+      hotelId: z.number().optional().describe('Hotel ID (for bookHotel, getHotelBookings)'),
+      checkInDate: z.number().optional().describe('Check-in date as Unix timestamp (for bookHotel)'),
+      checkOutDate: z.number().optional().describe('Check-out date as Unix timestamp (for bookHotel)'),
+      bookingId: z.number().optional().describe('Booking ID (for checkInHotel, cancelBooking, getBooking)'),
+      userAddress: z.string().optional().describe('User address (for getUserBookings)'),
+      valueInTinybars: z.number().optional().describe('HBAR amount in tinybars (for bookHotel)')
+    }),
+    func: async (input) => {
+      try{
+        const { functionName, hotelId, checkInDate, checkOutDate, bookingId, userAddress, valueInTinybars } = input;
 
-  constructor(private client: Client, private contractId: ContractId){
-    super();
-  }
+        if(['bookHotel', 'checkInHotel', 'cancelBooking'].includes(functionName)){
+          const tx = new ContractExecuteTransaction()
+            .setContractId(contractId)
+            .setGas(100000);
+          
+          if(valueInTinybars && functionName === 'bookHotel'){
+            tx.setPayableAmount(Hbar.fromTinybars(valueInTinybars));
+          }
 
-  protected async _call(input: string): Promise<string>{
-    try{
-      const{ contractId, functionName, params, value } = JSON.parse(input);
-      if(contractId !== this.contractId.toString()){
-        throw new Error('Invalid contractId');
+          if(functionName === 'bookHotel'){
+            if(!hotelId || !checkInDate || !checkOutDate){
+              throw new Error('bookHotel requires hotelId, checkInDate, and checkOutDate');
+            }
+            tx.setFunction('bookHotel', new ContractFunctionParameters()
+              .addUint256(hotelId)
+              .addUint256(checkInDate)
+              .addUint256(checkOutDate));
+          }else if(functionName === 'checkInHotel' || functionName === 'cancelBooking'){
+            if(!bookingId){
+              throw new Error(`${functionName} requires bookingId`);
+            }
+            tx.setFunction(functionName, new ContractFunctionParameters().addUint256(bookingId));
+          }
+
+          const txBytes = await tx.toBytes();
+          return `Transaction ready for signing. Base64 bytes: ${Buffer.from(txBytes).toString('base64')}`;
+        }else if (['getBooking', 'getUserBookings', 'getHotelBookings'].includes(functionName)){
+          const query = new ContractCallQuery()
+            .setContractId(contractId)
+            .setGas(100000);
+            
+          if(functionName === 'getBooking'){
+            if(!bookingId) throw new Error('getBooking requires bookingId');
+            query.setFunction('getBooking', new ContractFunctionParameters().addUint256(bookingId));
+          }else if(functionName === 'getUserBookings'){
+            if(!userAddress) throw new Error('getUserBookings requires userAddress');
+            query.setFunction('getUserBookings', new ContractFunctionParameters().addAddress(userAddress));
+          } else if(functionName === 'getHotelBookings'){
+            if(!hotelId) throw new Error('getHotelBookings requires hotelId');
+            query.setFunction('getHotelBookings', new ContractFunctionParameters().addUint256(hotelId));
+          }
+          
+          const result = await query.execute(client);
+          return JSON.stringify(result.asBytes());
+        }else{
+          throw new Error(`Unsupported function: ${functionName}`);
+        }
+      }catch(error){
+        return `Error: ${error}`;
       }
-
-      if(['bookHotel', 'checkInHotel', 'cancelBooking'].includes(functionName)){
-        const tx = new ContractExecuteTransaction().setContractId(this.contractId).setGas(100000);
-        if (value) {
-          tx.setPayableAmount(Hbar.fromTinybars(value));
-        }
-
-        if(functionName === 'bookHotel'){
-          const { hotelId, checkInDate, checkOutDate } = params;
-          tx.setFunction('bookHotel', new ContractFunctionParameters()
-            .addUint256(hotelId)
-            .addUint256(checkInDate)
-            .addUint256(checkOutDate));
-        } else if(functionName === 'checkInHotel' || functionName === 'cancelBooking'){
-          const { bookingId } = params;
-          tx.setFunction(functionName, new ContractFunctionParameters().addUint256(bookingId));
-        }
-
-        const txBytes = await tx.toBytes();
-        return `transaction bytes: ${Buffer.from(txBytes).toString('base64')}`;
-      } else if (['getBooking', 'getUserBookings', 'getHotelBookings'].includes(functionName)){
-        // Query functions
-        const query = new ContractCallQuery().setContractId(this.contractId).setGas(100000);
-        if(functionName === 'getBooking'){
-          query.setFunction('getBooking', new ContractFunctionParameters().addUint256(params.bookingId));
-        }else if (functionName === 'getUserBookings'){
-          query.setFunction('getUserBookings', new ContractFunctionParameters().addAddress(params.user));
-        }else if (functionName === 'getHotelBookings'){
-          query.setFunction('getHotelBookings', new ContractFunctionParameters().addUint256(params.hotelId));
-        }
-        const result = await query.execute(this.client);
-        return JSON.stringify(result.asBytes());
-      }else {
-        throw new Error(`Unsupported function: ${functionName}`);
-      }
-    }catch(error){
-      return `Error: ${error}`;
     }
-  }
+  });
+}
+
+function createHCSMessageTool(bookingTopicId: string, hcsTool: StructuredToolInterface){
+  return new DynamicStructuredTool({
+    name: 'submit_hcs_message',
+    description: `Log a booking attestation to Hedera HCS topic ${bookingTopicId}. Provide the message content as a JSON string containing booking details.`,
+    schema: z.object({
+      topicId: z.string().describe('The HCS topic ID to submit to'),
+      message: z.string().describe('The message content as a JSON string')
+    }),
+    func: async ({ topicId, message }) => {
+      try{
+        const result = await hcsTool.invoke({ topicId, message });
+        return typeof result === 'string' ? result : JSON.stringify(result);
+      }catch(error){
+        return `Error submitting to HCS: ${error}`;
+      }
+    }
+  });
+}
+
+// If you want to hardcode any details you can do so here for now.
+async function initializePineconeStore(pinecone: PineconeClient){
+  const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: 'text-embedding-004',
+    apiKey: process.env.GOOGLE_API_KEY!,
+  });
 }
 
 export class TravelAgent{
@@ -120,64 +200,46 @@ export class TravelAgent{
   }
 
   public static async create(config: TravelAgentConfig) {
-    const embeddings = new GoogleGenerativeAIEmbeddings({
-      model: 'text-embedding-004',
-      apiKey: process.env.GOOGLE_API_KEY!,
+    const pinecone = new PineconeClient({
+      apiKey: process.env.PINECONE_API_KEY!,
     });
 
-    const docs = [
-      new Document({ pageContent: 'The pool is open 9 AM to 9 PM.' }),
-      new Document({ pageContent: 'Checkout time is 11 AM. Late checkout costs $50.' }),
-      new Document({ pageContent: 'Our cancellation policy is 48 hours.' }),
-    ];
-
-    const vectorStore = await MemoryVectorStore.fromDocuments(docs, embeddings);
-    const retriever = vectorStore.asRetriever();
+    console.log('Initializing Pinecone vector store');
+    await initializePineconeStore(pinecone);
 
     const llm = new ChatGoogleGenerativeAI({
       model: 'gemini-2.0-flash',
       apiKey: process.env.GOOGLE_API_KEY!,
     });
 
-    const ragPrompt = ChatPromptTemplate.fromTemplate(`
+    // temporary prompt, will change later
+    const systemPrompt = `
       You are ${config.name}, an AI travel agent for hotel bookings on Hedera.
       Basic info: ${config.basicInfo}
-      Answer the user's question based ONLY on the following retrieved context. If the answer isn't in the context, say so.
-
-      Context:
-      {context}
-
-      Question: {input}
-    `);
-
-    const documentChain = await createStuffDocumentsChain({ llm, prompt: ragPrompt });
-    const ragChain = await createRetrievalChain({ retriever, combineDocsChain: documentChain });
-
-    const systemPrompt = `
-      You are {{name}}, an AI travel agent for hotel bookings on Hedera.
-      Basic info: {{basicInfo}}
+      
       Use tools to:
-      - Answer hotel questions (e.g., pool hours) with get_hotel_info (input: question string).
-      - Log bookings to HCS with submit_hcs_message (input: JSON string {{ topicId, message: {{ userId: string, checkInDate: string, price: number, bookingId: number }} }}).
-      - Book a hotel with call_contract_function (functionName: "bookHotel", input: JSON string {{ contractId: "{{escrowContractId}}", params: {{ hotelId: number, checkInDate: number, checkOutDate: number }}, value: number }}) and log to HCS.
-      - Check in to a booking with call_contract_function (functionName: "checkInHotel", input: JSON string {{ contractId: "{{escrowContractId}}", params: {{ bookingId: number }} }}).
-      - Cancel a booking with call_contract_function (functionName: "cancelBooking", input: JSON string {{ contractId: "{{escrowContractId}}", params: {{ bookingId: number }} }}).
-      - Get booking details with call_contract_function (functionName: "getBooking", input: JSON string {{ contractId: "{{escrowContractId}}", params: {{ bookingId: number }} }}).
-      - Get user bookings with call_contract_function (functionName: "getUserBookings", input: JSON string {{ contractId: "{{escrowContractId}}", params: {{ user: string }} }}).
-      - Get hotel bookings with call_contract_function (functionName: "getHotelBookings", input: JSON string {{ contractId: "{{escrowContractId}}", params: {{ hotelId: number }} }}).
+      - Answer hotel questions with get_hotel_info (MUST provide hotelId)
+      - Log bookings to HCS with submit_hcs_message (topicId: ${config.bookingTopicId})
+      - Book/manage hotels with call_contract_function
+      
+      IMPORTANT: When answering questions about hotel information, you MUST extract or ask for the hotelId.
+      Different hotels have different policies and amenities stored in separate namespaces.
+      
+      Available hotels: 1, 2, 3
+      
       For bookings:
-      - Extract userId, hotelId (default: 1), checkInDate/checkOutDate (Unix timestamps), price (HBAR in tinybars).
-      - Call bookHotel with price as msg.value and log to HCS.
-      - Use HITL for bookHotel, checkInHotel, cancelBooking (return transaction bytes).
-      If input is unclear, ask for clarification. Examples:
-      - "Book Grand Hotel for user123 on 2025-10-25 to 2025-10-27 for 100000000 tinybars" → bookHotel + HCS log.
-      - "Check in to booking ID 1" → checkInHotel.
-      - "Get my bookings for 0x123...abc" → getUserBookings.
+      - Extract userId, hotelId (default: 1), checkInDate/checkOutDate (Unix timestamps), price (HBAR in tinybars)
+      - Call bookHotel with price as valueInTinybars and log to HCS
+      - Use HITL for transactions (return transaction bytes for user approval)
+      
+      If input is unclear or missing hotelId, ask for clarification.
     `;
 
-    const agentPrompt = ChatPromptTemplate.fromTemplate(systemPrompt + '\n\n{input}\n\n{agent_scratchpad}');
+    const agentPrompt = ChatPromptTemplate.fromTemplate(
+      systemPrompt + '\n\n{input}\n\n{agent_scratchpad}'
+    );
 
-    // Hedera Client & Toolkit
+    console.log('Setting up Hedera client');
     const client = Client.forName(process.env.HEDERA_NETWORK || 'testnet').setOperator(
       AccountId.fromString(config.hederaAccountId),
       PrivateKey.fromStringECDSA(config.hederaPrivateKey)
@@ -189,58 +251,52 @@ export class TravelAgent{
         plugins: [coreConsensusPlugin],
       },
     });
-    const tools = await toolkit.getTools();
+    const hederaTools = await toolkit.getTools();
+    const originalHcsTool = hederaTools.find((t) => t.name === 'submit_topic_message_tool');
+    
+    console.log('Creating agent tools');
+    const hotelInfoTool = createHotelInfoTool(llm, config, pinecone);
+    const contractTool = createContractCallTool(client, ContractId.fromString(config.escrowContractId));
+    const allTools: StructuredToolInterface[] = [hotelInfoTool, contractTool];
+    
+    if(originalHcsTool){
+      const hcsMessageTool = createHCSMessageTool(config.bookingTopicId, originalHcsTool);
+      allTools.push(hcsMessageTool);
+    }
 
-    const hcsTool = tools.find((t) => t.name === 'submit_message_to_topic')!;
-    hcsTool.description = `Log a booking attestation to Hedera HCS topic ${config.bookingTopicId}. Input: JSON string { topicId, message: { userId: string, checkInDate: string, price: number, bookingId: number } }.`;
+    const agent = await createToolCallingAgent({ llm, tools: allTools, prompt: agentPrompt });
+    const agentExecutor = new AgentExecutor({ 
+      agent, 
+      tools: allTools,
+      returnIntermediateSteps: false,
+      maxIterations: 10
+    });
 
-    const contractTool = new ContractCallTool(client, ContractId.fromString(config.escrowContractId));
-
-    const allTools = [new HotelInfoTool(ragChain), hcsTool, contractTool];
-
-    const memory = new BufferWindowMemory({ k: 5 });
-    const agent = await createToolCallingAgent({ llm, tools: allTools, prompt: agentPrompt }); // Use agentPrompt
-    const agentExecutor = new AgentExecutor({ agent, tools: allTools, memory });
-
+    console.log('✓ Travel agent initialized with Pinecone namespaces\n');
     return new TravelAgent(config, agentExecutor, client);
   }
 
   public async run(input: string): Promise<string>{
     try{
       const result = await this.agentExecutor.invoke({ input });
-      if(typeof result.output === 'string' && result.output.includes('transaction bytes')){
-        const txBytes = result.output.match(/transaction bytes: ([\w\d\/+=]+)/)?.[1];
-        // if (txBytes) {
-        //   // Simulate wallet signing (e.g., HashPack)
-        //   const signedTx = await this.client.signTransaction(Buffer.from(txBytes, 'base64'));
-        //   const response = await signedTx.execute(this.client);
-        //   const receipt = await response.getReceipt(this.client);
-        //   let extraInfo = '';
-        //   if (result.output.includes('bookHotel')) {
-        //     const bookingId = receipt.contractFunctionResult?.getUint256(0);
-        //     extraInfo = `Booking ID: ${bookingId}`;
-        //   }
-        //   return `${result.output}\nTransaction confirmed: Tx ID ${response.transactionId.toString()}, Status: ${receipt.status.toString()}${extraInfo ? `, ${extraInfo}` : ''}`;
-        // }
-      }
       return result.output;
-    }catch (error){
+    }catch(error){
       return `Error: ${error}`;
     }
   }
-
+  // ig we dont need this for hotel specific agent?
   public getAgentCard(){
-    return {
+    return{
       name: this.name,
-      description: `AI Travel Agent for ${this.name}. Uses Hedera Agent Kit for HCS logging and BookingEscrow contract interactions.`,
+      description: `AI Travel Agent for ${this.name}. Uses Hedera Agent Kit for HCS logging and BookingEscrow contract interactions. Powered by Pinecone vector DB with namespace isolation.`,
       version: '1.0.0',
-      capabilities: { hederaIntegration: true, smartContracts: true, nftBookings: true },
+      capabilities: { hederaIntegration: true, smartContracts: true, nftBookings: true, vectorSearch: true },
       defaultInputModes: ['text'],
       defaultOutputModes: ['text'],
       protocolVersion: '1.0',
       url: 'http://localhost:3000',
       skills: [
-        { id: 'get_hotel_info', name: 'get_hotel_info', description: 'Answer hotel questions.', tags: ['rag'] },
+        { id: 'get_hotel_info', name: 'get_hotel_info', description: 'Answer hotel questions with namespace isolation.', tags: ['rag', 'pinecone'] },
         { id: 'submit_hcs_message', name: 'submit_hcs_message', description: 'Log bookings to HCS.', tags: ['hedera', 'hcs'] },
         { id: 'book_hotel', name: 'call_contract_function', description: 'Book hotel via BookingEscrow.', tags: ['hedera', 'hscs'] },
         { id: 'check_in_hotel', name: 'call_contract_function', description: 'Check in to a booking.', tags: ['hedera', 'hscs'] },
@@ -253,8 +309,8 @@ export class TravelAgent{
   }
 }
 
-async function main() {
-  const config: TravelAgentConfig ={
+async function main(){
+  const config: TravelAgentConfig = {
     id: 'travel-1',
     name: 'AI Travel Booker',
     basicInfo: 'Handles hotel bookings, check-ins, cancellations, and queries via BookingEscrow on Hedera.',
@@ -265,16 +321,28 @@ async function main() {
   };
 
   const agent = await TravelAgent.create(config);
-  const responses = await Promise.all([
-    agent.run('What are the pool hours?'),
-    agent.run('Book Grand Hotel for user123 on 2025-10-25 to 2025-10-27 for 100000000 tinybars.'),
-    agent.run('Check in to booking ID 1.'),
-    agent.run('Cancel booking ID 2.'),
-    agent.run('Get booking details for booking ID 1.'),
-    agent.run('Get bookings for user 0x1234567890abcdef1234567890abcdef12345678.'),
-    agent.run('Get bookings for hotel ID 1.'),
-  ]);
-  console.log(responses.join('\n'));
+  
+  console.log('Testing agent with Pinecone namespaced hotel information\n');
+  
+  const tests = [
+    'What are the pool hours for hotel 1?',
+    'What are the pool hours for hotel 2?',
+    'What is the checkout time for hotel 3?',
+    'What is the cancellation policy for hotel 1?',
+    'Tell me about amenities at hotel 2',
+    'Book Grand Hotel (hotel 1) for user123 on 2025-10-25 to 2025-10-27 for 100000000 tinybars.',
+    'Check in to booking ID 1.',
+    'Cancel booking ID 2.',
+    'Get booking details for booking ID 1.',
+    'Get bookings for user 0x1234567890abcdef1234567890abcdef12345678.',
+    'Get bookings for hotel ID 1.',
+  ];
+
+  for(const test of tests){
+    console.log(`\nQuery: ${test}`);
+    const response = await agent.run(test);
+    console.log(`Response: ${response}\n`);
+  }
 }
 
 main().catch(console.error);
