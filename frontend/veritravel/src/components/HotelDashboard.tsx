@@ -53,65 +53,65 @@ type Stay = {
   arrivalState: ArrivalState;
 };
 
-const initialStays: Stay[] = [
-  {
-    id: "stay-1",
-    guestName: "Lena Carter",
-    amount: "1.20 ETH",
-    nftStatus: "Queued",
-    arrivalState: "awaiting",
-  },
-  {
-    id: "stay-2",
-    guestName: "Omar Salim",
-    walletId: "0x3b91...9fae",
-    checkIn: "08 Oct 2025 · 14:20",
-    checkOut: "11 Oct 2025",
-    amount: "0.84 ETH",
-    nftStatus: "Minted",
-    nftCode: "VR-2873",
-    arrivalState: "departed",
-  },
-  {
-    id: "stay-3",
-    guestName: "Nia Rhodes",
-    walletId: "0x57de...aa90",
-    checkIn: "02 Oct 2025 · 16:05",
-    amount: "0.96 ETH",
-    nftStatus: "Minted",
-    nftCode: "VR-2941",
-    arrivalState: "arrived",
-  },
-  {
-    id: "stay-4",
-    guestName: "Marco Díaz",
-    amount: "0.73 ETH",
-    nftStatus: "Queued",
-    arrivalState: "awaiting",
-  },
-  {
-    id: "stay-5",
-    guestName: "Priya Dutta",
-    walletId: "0x91f4...0ccd",
-    checkIn: "22 Sep 2025 · 13:11",
-    checkOut: "27 Sep 2025",
-    amount: "1.54 ETH",
-    nftStatus: "Minted",
-    nftCode: "VR-2710",
-    arrivalState: "departed",
-  },
-  {
-    id: "stay-6",
-    guestName: "Cassie Bell",
-    walletId: "0xad71...44e1",
-    checkIn: "14 Sep 2025 · 09:42",
-    checkOut: "18 Sep 2025",
-    amount: "1.02 ETH",
-    nftStatus: "Minted",
-    nftCode: "VR-2604",
-    arrivalState: "departed",
-  },
-];
+// const initialStays: Stay[] = [
+//   {
+//     id: "stay-1",
+//     guestName: "Lena Carter",
+//     amount: "1.20 ETH",
+//     nftStatus: "Queued",
+//     arrivalState: "awaiting",
+//   },
+//   {
+//     id: "stay-2",
+//     guestName: "Omar Salim",
+//     walletId: "0x3b91...9fae",
+//     checkIn: "08 Oct 2025 · 14:20",
+//     checkOut: "11 Oct 2025",
+//     amount: "0.84 ETH",
+//     nftStatus: "Minted",
+//     nftCode: "VR-2873",
+//     arrivalState: "departed",
+//   },
+//   {
+//     id: "stay-3",
+//     guestName: "Nia Rhodes",
+//     walletId: "0x57de...aa90",
+//     checkIn: "02 Oct 2025 · 16:05",
+//     amount: "0.96 ETH",
+//     nftStatus: "Minted",
+//     nftCode: "VR-2941",
+//     arrivalState: "arrived",
+//   },
+//   {
+//     id: "stay-4",
+//     guestName: "Marco Díaz",
+//     amount: "0.73 ETH",
+//     nftStatus: "Queued",
+//     arrivalState: "awaiting",
+//   },
+//   {
+//     id: "stay-5",
+//     guestName: "Priya Dutta",
+//     walletId: "0x91f4...0ccd",
+//     checkIn: "22 Sep 2025 · 13:11",
+//     checkOut: "27 Sep 2025",
+//     amount: "1.54 ETH",
+//     nftStatus: "Minted",
+//     nftCode: "VR-2710",
+//     arrivalState: "departed",
+//   },
+//   {
+//     id: "stay-6",
+//     guestName: "Cassie Bell",
+//     walletId: "0xad71...44e1",
+//     checkIn: "14 Sep 2025 · 09:42",
+//     checkOut: "18 Sep 2025",
+//     amount: "1.02 ETH",
+//     nftStatus: "Minted",
+//     nftCode: "VR-2604",
+//     arrivalState: "departed",
+//   },
+// ];
 
 const nftStatusStyles: Record<NftState, string> = {
   Minted: "bg-[#E1F4E7] text-[#236A42] border-[#B8E4C7]",
@@ -119,6 +119,8 @@ const nftStatusStyles: Record<NftState, string> = {
   Minting: "bg-[#E5F0FF] text-[#1F4AA7] border-[#B4D3FF]",
 };
 
+// Map from bookingStatus enum to arrivalState
+const arrivalStateMap: ArrivalState[] = ["awaiting", "arrived", "departed"];
 const arrivalStyles: Record<ArrivalState, { label: string; className: string }> = {
   awaiting: {
     label: "Awaiting Arrival",
@@ -156,7 +158,7 @@ export default function HotelDashboard({
   activeView = "hotel",
   onNavigate,
 }: HotelDashboardProps) {
-  const [stays, setStays] = useState<Stay[]>(initialStays);
+  // const [stays, setStays] = useState<Stay[]>(initialStays);
   const [filter, setFilter] = useState<ArrivalFilter>("all");
   const [activeStayId, setActiveStayId] = useState<string | null>(null);
   const [checkInForm, setCheckInForm] = useState({ walletId: "", nftCode: "" });
@@ -170,11 +172,12 @@ export default function HotelDashboard({
 
   // Data retrieved from Smart Contracts
   const [hotel, setHotel] = useState<Hotel>();
+  const [bookings, setBookings] = useState<Booking[]>([]);
 
-  const activeStay = useMemo(
-    () => (activeStayId ? stays.find((stay) => stay.id === activeStayId) ?? null : null),
-    [activeStayId, stays]
-  );
+  // const activeStay = useMemo(
+  //   () => (activeStayId ? stays.find((stay) => stay.id === activeStayId) ?? null : null),
+  //   [activeStayId, stays]
+  // );
 
   // Connect Waller & Load Contract
   const connectWallet = async () => {
@@ -183,7 +186,7 @@ export default function HotelDashboard({
       if (!ethereum) return alert("Install MetaMask");
 
       const chainId = await ethereum.request({ method: "eth_chainId" });
-      if (chainId !== "0xaa36a7") return alert("Switch to Sepolia");
+      if (chainId !== "0x128") return alert("Switch to Hedera Testnet");
 
       const accounts = await ethereum.request({ method: "eth_requestAccounts" });
       const provider = new ethers.BrowserProvider(ethereum);
@@ -238,12 +241,12 @@ export default function HotelDashboard({
     }
   }
 
-  async function confirmStay(hotelId: number, guestAddr: string) {
+  async function confirmStay(booking: Booking) {
     if (!hotelContract)
       return alert("Connect wallet first");
     setLoading(true);
     try {
-      const tx = await hotelContract.ConfirmStay(hotelId, guestAddr);
+      const tx = await hotelContract.ConfirmStay(hotel?.id, booking.user);
       await tx.wait();
       alert("Stay confirmed, NFT minted!");
     } catch (err) {
@@ -299,7 +302,10 @@ export default function HotelDashboard({
             checkOutDate: b.checkOutDate,
             bookingStatus: b.bookingStatus
           }));
+          setBookings(formattedBookings);
         }
+
+        console.log(bookings);
       }
     } catch (err) {
       console.error("Error fetching hotel or bookings", err);
@@ -314,16 +320,16 @@ export default function HotelDashboard({
     loadHotelBookings();
   }, [hotelContract, bookingContract]);
 
-  useEffect(() => {
-    if (activeStay) {
-      setCheckInForm({
-        walletId: activeStay.walletId ?? "",
-        nftCode: activeStay.nftCode ?? "",
-      });
-    } else {
-      setCheckInForm({ walletId: "", nftCode: "" });
-    }
-  }, [activeStay]);
+  // useEffect(() => {
+  //   if (activeStay) {
+  //     setCheckInForm({
+  //       walletId: activeStay.walletId ?? "",
+  //       nftCode: activeStay.nftCode ?? "",
+  //     });
+  //   } else {
+  //     setCheckInForm({ walletId: "", nftCode: "" });
+  //   }
+  // }, [activeStay]);
 
   useEffect(() => {
     return () => {
@@ -331,23 +337,23 @@ export default function HotelDashboard({
     };
   }, []);
 
-  const filteredStays = useMemo(() => {
+  const filteredBookings = useMemo(() => {
     if (filter === "arrived") {
-      return stays.filter((stay) => stay.arrivalState === "arrived");
+      return bookings.filter((booking) => booking.bookingStatus == 1);
     }
     if (filter === "awaiting") {
-      return stays.filter((stay) => stay.arrivalState === "awaiting");
+      return bookings.filter((booking) => booking.bookingStatus == 0);
     }
-    return stays;
-  }, [filter, stays]);
+    return bookings;
+  }, [filter, bookings]);
 
   const filterCounts = useMemo(
     () => ({
-      all: stays.length,
-      arrived: stays.filter((stay) => stay.arrivalState === "arrived").length,
-      awaiting: stays.filter((stay) => stay.arrivalState === "awaiting").length,
+      all: bookings.length,
+      arrived: bookings.filter((booking) => booking.bookingStatus == 1).length,
+      awaiting: bookings.filter((booking) => booking.bookingStatus == 0).length,
     }),
-    [stays]
+    [bookings]
   );
 
   const openCheckInDialog = (stayId: string) => {
@@ -358,69 +364,77 @@ export default function HotelDashboard({
     setActiveStayId(null);
   };
 
-  const handleCheckInSubmit = () => {
-    if (!activeStay) return;
-
-    const checkInTime = formatDateTime(new Date());
-    setStays((prev) =>
-      prev.map((stay) =>
-        stay.id === activeStay.id
-          ? {
-            ...stay,
-            checkIn: checkInTime,
-            walletId: checkInForm.walletId,
-            nftCode: checkInForm.nftCode,
-            arrivalState: "arrived",
-          }
-          : stay
-      )
-    );
-    closeCheckInDialog();
+  const formatDate = (ts: bigint) => {
+    const date = new Date(Number(ts) * 1000);
+    const day = date.getDate().toString().padStart(2, "0");
+    const month = (date.getMonth() + 1).toString().padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
   };
 
-  const handleCheckout = (stayId: string) => {
-    const checkoutTime = formatDateTime(new Date());
-    setStays((prev) =>
-      prev.map((stay) =>
-        stay.id === stayId
-          ? {
-            ...stay,
-            checkOut: checkoutTime,
-            arrivalState: "departed",
-          }
-          : stay
-      )
-    );
-  };
+  // const handleCheckInSubmit = () => {
+  //   if (!activeStay) return;
 
-  const handleMintNFT = (stayId: string) => {
-    if (mintTimers.current[stayId]) return;
+  //   const checkInTime = formatDateTime(new Date());
+  //   setStays((prev) =>
+  //     prev.map((stay) =>
+  //       stay.id === activeStay.id
+  //         ? {
+  //           ...stay,
+  //           checkIn: checkInTime,
+  //           walletId: checkInForm.walletId,
+  //           nftCode: checkInForm.nftCode,
+  //           arrivalState: "arrived",
+  //         }
+  //         : stay
+  //     )
+  //   );
+  //   closeCheckInDialog();
+  // };
 
-    setStays((prev) =>
-      prev.map((stay) =>
-        stay.id === stayId
-          ? {
-            ...stay,
-            nftStatus: "Minting",
-          }
-          : stay
-      )
-    );
+  // const handleCheckout = (stayId: string) => {
+  //   const checkoutTime = formatDateTime(new Date());
+  //   setStays((prev) =>
+  //     prev.map((stay) =>
+  //       stay.id === stayId
+  //         ? {
+  //           ...stay,
+  //           checkOut: checkoutTime,
+  //           arrivalState: "departed",
+  //         }
+  //         : stay
+  //     )
+  //   );
+  // };
 
-    mintTimers.current[stayId] = setTimeout(() => {
-      setStays((prev) =>
-        prev.map((stay) =>
-          stay.id === stayId
-            ? {
-              ...stay,
-              nftStatus: "Minted",
-            }
-            : stay
-        )
-      );
-      delete mintTimers.current[stayId];
-    }, 2200);
-  };
+  // const handleMintNFT = (stayId: string) => {
+  //   if (mintTimers.current[stayId]) return;
+
+  //   setStays((prev) =>
+  //     prev.map((stay) =>
+  //       stay.id === stayId
+  //         ? {
+  //           ...stay,
+  //           nftStatus: "Minting",
+  //         }
+  //         : stay
+  //     )
+  //   );
+
+  //   mintTimers.current[stayId] = setTimeout(() => {
+  //     setStays((prev) =>
+  //       prev.map((stay) =>
+  //         stay.id === stayId
+  //           ? {
+  //             ...stay,
+  //             nftStatus: "Minted",
+  //           }
+  //           : stay
+  //       )
+  //     );
+  //     delete mintTimers.current[stayId];
+  //   }, 2200);
+  // };
 
   return (
     <div className="min-h-screen bg-[#EFEBD9] font-sans">
@@ -446,6 +460,9 @@ export default function HotelDashboard({
                   </span>
                   <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
                     {hotel?.tags[2]}
+                  </span>
+                  <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
+                    {hotel?.tags[3]}
                   </span>
                 </div>
 
@@ -561,21 +578,21 @@ export default function HotelDashboard({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredStays.map((stay, index) => {
-                  const arrivalBadge = arrivalStyles[stay.arrivalState];
+                {filteredBookings.map((booking, index) => {
+                  const arrivalBadge = arrivalStyles[arrivalStateMap[booking.bookingStatus]];
                   return (
                     <TableRow
-                      key={stay.id}
+                      key={booking.bookingId}
                       className={index % 2 === 0 ? "bg-white/60" : "bg-transparent"}
                     >
                       <TableCell className="align-top">
                         <div className="flex flex-col gap-2 text-neutral-900">
                           <div className="text-sm font-semibold uppercase tracking-[0.16em]">
-                            {stay.guestName}
+                            {booking.user}
                           </div>
-                          <div className="text-xs text-neutral-500">
+                          {/* <div className="text-xs text-neutral-500">
                             {stay.walletId ? stay.walletId : "Wallet to be added at check-in"}
-                          </div>
+                          </div> */}
                           <span
                             className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${arrivalBadge.className}`}
                           >
@@ -584,7 +601,7 @@ export default function HotelDashboard({
                         </div>
                       </TableCell>
                       <TableCell className="align-top text-neutral-700">
-                        {stay.arrivalState === "awaiting" ? (
+                        {/* {booking.bookingStatus === 0 ? (
                           <Button
                             onClick={() => openCheckInDialog(stay.id)}
                             variant="outline"
@@ -592,16 +609,16 @@ export default function HotelDashboard({
                           >
                             Start Check-In
                           </Button>
-                        ) : (
-                          <span className="text-sm font-medium text-neutral-800">
-                            {stay.checkIn ?? "—"}
-                          </span>
-                        )}
+                        ) : ( */}
+                        <span className="text-sm font-medium text-neutral-800">
+                          {formatDate(booking.checkInDate)}
+                        </span>
+                        {/* )} */}
                       </TableCell>
                       <TableCell className="align-top text-neutral-700">
-                        {stay.arrivalState === "arrived" && !stay.checkOut ? (
+                        {Number(booking.bookingStatus) == 1 ? (
                           <Button
-                            onClick={() => handleCheckout(stay.id)}
+                            onClick={() => confirmStay(booking)}
                             variant="ghost"
                             className="flex items-center gap-2 rounded-full border border-black/12 bg-[#F3F0E6] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-800 hover:bg-[#E4D8BB]"
                           >
@@ -610,15 +627,15 @@ export default function HotelDashboard({
                           </Button>
                         ) : (
                           <span className="text-sm font-medium text-neutral-800">
-                            {stay.checkOut ?? "—"}
+                            {formatDate(booking.checkOutDate)}
                           </span>
                         )}
                       </TableCell>
                       <TableCell className="align-top text-right font-semibold text-neutral-900">
-                        {stay.amount}
+                        {booking.amount}
                       </TableCell>
                       <TableCell className="align-top text-right">
-                        <div className="flex flex-col items-end gap-2">
+                        {/* <div className="flex flex-col items-end gap-2">
                           <span
                             className={`inline-flex items-center justify-center gap-2 rounded-full border px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${nftStatusStyles[stay.nftStatus]}`}
                           >
@@ -641,7 +658,7 @@ export default function HotelDashboard({
                               Code: {stay.nftCode}
                             </span>
                           )}
-                        </div>
+                        </div> */}
                       </TableCell>
                     </TableRow>
                   );
@@ -652,7 +669,8 @@ export default function HotelDashboard({
         </div>
       </main>
 
-      <Dialog open={!!activeStay} onOpenChange={(open) => (open ? null : closeCheckInDialog())}>
+      {/* open={!!activeStay}  */}
+      <Dialog onOpenChange={(open) => (open ? null : closeCheckInDialog())}>
         <DialogContent className="max-w-lg rounded-3xl border-black/10 bg-[#F6F1DF] p-8">
           <DialogHeader className="space-y-3">
             <DialogTitle className="text-2xl font-semibold uppercase tracking-[0.24em] text-neutral-900">
@@ -701,7 +719,7 @@ export default function HotelDashboard({
               Cancel
             </Button>
             <Button
-              onClick={handleCheckInSubmit}
+              // onClick={handleCheckInSubmit}
               disabled={!checkInForm.walletId || !checkInForm.nftCode}
               className="rounded-full bg-black px-7 py-3 text-xs font-semibold uppercase tracking-[0.24em] text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:bg-neutral-500"
             >
