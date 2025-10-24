@@ -1,7 +1,7 @@
 "use client"
 
 import { type SubmitHandler, useForm } from "react-hook-form"
-import { z } from "zod"
+import { set, z } from "zod"
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -138,7 +138,7 @@ export default function UserDashboard() {
 
 
   const [walletAddress, setWalletAddress] = useState<string|null>(null);
-  const [bookingNfts, setBookingNfts] = useState<any[]>([])
+  const [booking, setBooking] = useState<any[]>([])
   const [proofOfStayNfts,setProofOfStayNfts] = useState<any[]>([])
   const [isLoadingNfts, setIsLoadingNfts] = useState(true)
 
@@ -161,22 +161,22 @@ export default function UserDashboard() {
   })
 
   // Convert NFT metadata to StayDetails format
-  const nftBookings = useMemo(() => {
-    return bookingNfts.map((nft) => ({
-      name: nft.name || "Hotel Booking",
-      price: 0, 
-      location: "View Details", 
-      rating: 0, 
-      size: "N/A",
-      rooms: "N/A",
-      feature: "NFT Booking",
-      image: nft.image,
-      description: nft.description || "Your booking NFT",
-      bookingDate: nft.bookingDate,
-      hotelId: nft.hotelId,
-      tokenId: nft.tokenId,
-    }))
-  }, [bookingNfts])
+  // const nftBookings = useMemo(() => {
+  //   return bookingNfts.map((nft) => ({
+  //     name: nft.name || "Hotel Booking",
+  //     price: 0, 
+  //     location: "View Details", 
+  //     rating: 0, 
+  //     size: "N/A",
+  //     rooms: "N/A",
+  //     feature: "NFT Booking",
+  //     image: nft.image,
+  //     description: nft.description || "Your booking NFT",
+  //     bookingDate: nft.bookingDate,
+  //     hotelId: nft.hotelId,
+  //     tokenId: nft.tokenId,
+  //   }))
+  // }, [bookingNfts])
 
   const proofofstays = useMemo(() => {
     return proofOfStayNfts.map((nft) => ({
@@ -296,14 +296,18 @@ export default function UserDashboard() {
         signer
       )
       setHotelRegistryContract(hotelregistry)
-      const bookings = [];
-      const balance = await bookingContract.balanceOf(address);
-      for (let i = 0; i < balance; i++) {
-        const tokenId = await bookingContract.tokenOfOwnerByIndex(address, i);
-        const tokenURI = await bookingContract.tokenURI(tokenId);
-        const metadata = await fetch(tokenURI).then(res => res.json());
-        bookings.push({ tokenId: tokenId.toString(), ...metadata });
+
+      // Fetch Booking 
+      const bookings = await bookingescrow.getUserBooking(address);
+      let arr = []
+      for (const booking of bookings) {
+        const hotel = await hotelregistry.getHotel(booking.hotelId!)
+        arr.push({ ...booking, hotel })
       }
+      setBooking(arr);
+
+
+
       const bal = await proofofstayContract.balanceOf(address);
       const stays = [];
       for (let i = 0; i < bal; i++) {
@@ -312,8 +316,6 @@ export default function UserDashboard() {
         const metadata = await fetch(tokenURI).then(res => res.json());
         stays.push({ tokenId: tokenId.toString(), ...metadata });
       }
-      console.log("got bookings ",bookings);
-      setBookingNfts(bookings);
       setProofOfStayNfts(stays);
     } catch (error) {
       console.error("Error connecting wallet:", error);
@@ -712,7 +714,7 @@ export default function UserDashboard() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-2xl font-serif tracking-tight text-neutral-900">My bookings</h2>
               <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-neutral-500">
-                {nftBookings.length > 0 ? 'Manage your reservations' : 'Your NFT bookings will appear here'}
+                {booking.length > 0 ? 'Manage your reservations' : 'Your NFT bookings will appear here'}
               </span>
             </div>
             {isLoadingNfts ? (
@@ -721,7 +723,7 @@ export default function UserDashboard() {
                   Loading your bookings...
                 </div>
               </div>
-            ) : nftBookings.length === 0 ? (
+            ) : booking.length === 0 ? (
               <div className="mt-6 flex h-40 flex-col items-center justify-center rounded-[28px] border border-dashed border-black/20 bg-white/60">
                 <div className="text-4xl">🏨</div>
                 <p className="mt-4 text-sm font-semibold uppercase tracking-[0.3em] text-neutral-600">
@@ -733,24 +735,24 @@ export default function UserDashboard() {
               </div>
             ) : (
               <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                {nftBookings.map((booking, idx) => {
+                {booking.map((booking, idx) => {
                   return (
                     <div
-                      key={`${booking.tokenId}-${idx}`}
+                      key={`${booking.bookingId}-${idx}`}
                       className="flex h-full flex-col justify-between rounded-[28px] border border-black/12 bg-[#F6F1E0] p-6 shadow-[0_12px_24px_rgba(0,0,0,0.06)]"
                     >
                       <div className="space-y-3">
                         {booking.image && (
                           <div className="mb-3 overflow-hidden rounded-2xl border border-black/10">
                             <img 
-                              src={booking.image} 
-                              alt={booking.name}
+                              src={booking.hotel.images?.[0]} 
+                              alt={booking.hotel.name}
                               className="h-32 w-full object-cover"
                             />
                           </div>
                         )}
-                        <p className="text-lg font-serif tracking-tight text-neutral-900">{booking.name}</p>
-                        <p className="text-xs text-neutral-600">{booking.description}</p>
+                        <p className="text-lg font-serif tracking-tight text-neutral-900">{booking.hotel.name}</p>
+                        <p className="text-xs text-neutral-600">{booking.hotel.description}</p>
                         {booking.bookingDate && (
                           <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
                             <span className="uppercase tracking-[0.28em]">Booked:</span>
@@ -765,14 +767,14 @@ export default function UserDashboard() {
                       </div>
                       <div className="mt-6 space-y-3">
                         <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700">
-                          NFT #{booking.tokenId}
+                          NFT #{booking.nftId}
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                           <Button
                             type="button"
                             variant="outline"
                             className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-red-50 hover:text-red-600 hover:border-red-300"
-                            onClick={() => handleCancelBooking(booking.tokenId)}
+                            onClick={() => handleCancelBooking(booking.bookingId)}
                           >
                             Cancel
                           </Button>
@@ -780,7 +782,7 @@ export default function UserDashboard() {
                             type="button"
                             variant="outline"
                             className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-green-50 hover:text-green-600 hover:border-green-300"
-                            onClick={() => handleCheckIn(booking.tokenId)}
+                            onClick={() => handleCheckIn(booking.bookingId)}
                           >
                             Check In
                           </Button>
@@ -788,7 +790,7 @@ export default function UserDashboard() {
                             type="button"
                             variant="outline"
                             className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-300"
-                            onClick={() => handleRate(booking.tokenId)}
+                            onClick={() => handleRate(booking.bookingId)}
                           >
                             Rate
                           </Button>
