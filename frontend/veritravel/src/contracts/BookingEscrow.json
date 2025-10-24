@@ -1,0 +1,372 @@
+{
+    "abi": [
+        {
+            "inputs": [
+                {
+                    "internalType": "address",
+                    "name": "hotelRegistry",
+                    "type": "address"
+                }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "constructor"
+        },
+        {
+            "anonymous": false,
+            "inputs": [
+                {
+                    "indexed": true,
+                    "internalType": "address",
+                    "name": "user",
+                    "type": "address"
+                },
+                {
+                    "indexed": true,
+                    "internalType": "uint256",
+                    "name": "hotelId",
+                    "type": "uint256"
+                },
+                {
+                    "indexed": true,
+                    "internalType": "uint256",
+                    "name": "bookingId",
+                    "type": "uint256"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "uint256",
+                    "name": "nftId",
+                    "type": "uint256"
+                }
+            ],
+            "name": "BookingCancelled",
+            "type": "event"
+        },
+        {
+            "anonymous": false,
+            "inputs": [
+                {
+                    "indexed": true,
+                    "internalType": "address",
+                    "name": "user",
+                    "type": "address"
+                },
+                {
+                    "indexed": true,
+                    "internalType": "uint256",
+                    "name": "hotelId",
+                    "type": "uint256"
+                },
+                {
+                    "indexed": true,
+                    "internalType": "uint256",
+                    "name": "bookingId",
+                    "type": "uint256"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "uint256",
+                    "name": "nftId",
+                    "type": "uint256"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "uint256",
+                    "name": "checkInDate",
+                    "type": "uint256"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "uint256",
+                    "name": "checkOutDate",
+                    "type": "uint256"
+                }
+            ],
+            "name": "BookingCreated",
+            "type": "event"
+        },
+        {
+            "anonymous": false,
+            "inputs": [
+                {
+                    "indexed": true,
+                    "internalType": "address",
+                    "name": "user",
+                    "type": "address"
+                },
+                {
+                    "indexed": true,
+                    "internalType": "uint256",
+                    "name": "hotelId",
+                    "type": "uint256"
+                },
+                {
+                    "indexed": true,
+                    "internalType": "uint256",
+                    "name": "bookingId",
+                    "type": "uint256"
+                },
+                {
+                    "indexed": false,
+                    "internalType": "uint256",
+                    "name": "nftId",
+                    "type": "uint256"
+                }
+            ],
+            "name": "CheckedIn",
+            "type": "event"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "uint256",
+                    "name": "hotelId",
+                    "type": "uint256"
+                },
+                {
+                    "internalType": "uint256",
+                    "name": "checkInDate",
+                    "type": "uint256"
+                },
+                {
+                    "internalType": "uint256",
+                    "name": "checkOutDate",
+                    "type": "uint256"
+                }
+            ],
+            "name": "bookHotel",
+            "outputs": [
+                {
+                    "internalType": "uint256",
+                    "name": "",
+                    "type": "uint256"
+                }
+            ],
+            "stateMutability": "payable",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "uint256",
+                    "name": "bookingId",
+                    "type": "uint256"
+                }
+            ],
+            "name": "cancelBooking",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "uint256",
+                    "name": "bookingId",
+                    "type": "uint256"
+                }
+            ],
+            "name": "checkInHotel",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "uint256",
+                    "name": "bookingId",
+                    "type": "uint256"
+                }
+            ],
+            "name": "getBooking",
+            "outputs": [
+                {
+                    "components": [
+                        {
+                            "internalType": "uint256",
+                            "name": "bookingId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "address",
+                            "name": "user",
+                            "type": "address"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "hotelId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "amount",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "nftId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "checkInDate",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "checkOutDate",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "enum BookingEscrow.BookingStatus",
+                            "name": "bookingStatus",
+                            "type": "uint8"
+                        }
+                    ],
+                    "internalType": "struct BookingEscrow.Booking",
+                    "name": "",
+                    "type": "tuple"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [],
+            "name": "getBookingNft",
+            "outputs": [
+                {
+                    "internalType": "address",
+                    "name": "",
+                    "type": "address"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "uint256",
+                    "name": "hotelId",
+                    "type": "uint256"
+                }
+            ],
+            "name": "getHotelBookings",
+            "outputs": [
+                {
+                    "components": [
+                        {
+                            "internalType": "uint256",
+                            "name": "bookingId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "address",
+                            "name": "user",
+                            "type": "address"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "hotelId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "amount",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "nftId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "checkInDate",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "checkOutDate",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "enum BookingEscrow.BookingStatus",
+                            "name": "bookingStatus",
+                            "type": "uint8"
+                        }
+                    ],
+                    "internalType": "struct BookingEscrow.Booking[]",
+                    "name": "",
+                    "type": "tuple[]"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        },
+        {
+            "inputs": [
+                {
+                    "internalType": "address",
+                    "name": "user",
+                    "type": "address"
+                }
+            ],
+            "name": "getUserBookings",
+            "outputs": [
+                {
+                    "components": [
+                        {
+                            "internalType": "uint256",
+                            "name": "bookingId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "address",
+                            "name": "user",
+                            "type": "address"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "hotelId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "amount",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "nftId",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "checkInDate",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "checkOutDate",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "enum BookingEscrow.BookingStatus",
+                            "name": "bookingStatus",
+                            "type": "uint8"
+                        }
+                    ],
+                    "internalType": "struct BookingEscrow.Booking[]",
+                    "name": "",
+                    "type": "tuple[]"
+                }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+        }
+    ],
+    "address": "0x8dbb4ca33afade468e591937730c7c8a9083c7cb"
+}

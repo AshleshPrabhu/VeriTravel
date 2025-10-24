@@ -1,6 +1,9 @@
-
 import dotenv from 'dotenv';
-dotenv.config({ path: '../../.env' });
+import path from "path";
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import type { AgentCard, TaskStatusUpdateEvent} from '@a2a-js/sdk';
@@ -230,7 +233,7 @@ export class TravelAgent{
     async cancelTask(taskId: string): Promise<void> {
         console.log(`Cancelling task ${taskId}`);
         // In a real scenario, you might try to stop the LLM call or transaction.
-    }  
+    } 
 
     public static async create(config: TravelAgentConfig): Promise<TravelAgent> {
         const pinecone = new PineconeClient({

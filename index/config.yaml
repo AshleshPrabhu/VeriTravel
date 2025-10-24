@@ -1,12 +1,13 @@
 # yaml-language-server: $schema=./node_modules/envio/evm.schema.json
 name: envio-indexer
 networks:
-- id: 11155111
-  start_block: 0
+- id: 296
+  rpc: https://testnet.hashio.io/api
+  start_block: 26591216
   contracts:
   - name: HotelRegistry
     address:
-    - 0x584340512a0615669eBFF1A42Cbbea307282F9e7
+    - 0xb0b393989f8496171eb60C2f3cf30F1001599193
     handler: src/EventHandlers.ts
     events:
     - event: HotelRated(uint256 indexed hotelId, address indexed user, uint8 rating, uint256 averageRating, uint256 totalRatings, uint256 timestamp)
