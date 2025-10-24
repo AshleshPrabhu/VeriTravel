@@ -241,9 +241,9 @@ export class RoutingAgentExecutor {
                 return;
             }
 
-            const data = await response.json();
-            
-            if (data.agents && Array.isArray(data.agents)) {
+            const data = await response.json() as { agents?: Array<{ id: string; name: string; url: string }> };
+
+            if (data && data.agents && Array.isArray(data.agents)) {
                 for (const agent of data.agents) {
                     try {
                         // Create A2A client for each hotel agent

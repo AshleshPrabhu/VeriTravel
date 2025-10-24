@@ -91,9 +91,11 @@ async function testHotelSearch() {
         const someHotels = await hotelTool.searchHotels({});
         
         if (someHotels.length > 0) {
-            const testId = someHotels[0].id;
+            const testId = someHotels[0]?.id;
             console.log(`Fetching hotel with ID: ${testId}`);
-            
+            if(!testId) {
+                throw new Error('Test hotel ID is undefined');
+            }
             const hotel = await hotelTool.getHotelById(testId);
             if (hotel) {
                 console.log('✅ Successfully retrieved hotel:');

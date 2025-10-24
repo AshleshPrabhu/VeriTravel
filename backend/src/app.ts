@@ -14,10 +14,10 @@ app.use(express.json());
 
 app.use('/api/hedera', hederaRoutes);
 
-app.listen(port, () => {
-    console.log('Hotel Booking Backend running on port', port);
-    console.log('Hedera Network:', process.env.HEDERA_NETWORK);
-    console.log('Available at: http://localhost:' + port);
-});
+// app.listen(port, () => {
+//     console.log('Hotel Booking Backend running on port', port);
+//     console.log('Hedera Network:', process.env.HEDERA_NETWORK);
+//     console.log('Available at: http://localhost:' + port);
+// });
 
 export default app;

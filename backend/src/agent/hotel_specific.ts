@@ -1,3 +1,4 @@
+
 import dotenv from 'dotenv';
 dotenv.config({ path: '../../.env' });
 import express from 'express';
@@ -58,10 +59,13 @@ function createHotelInfoTool(llm: ChatGoogleGenerativeAI, config: TravelAgentCon
                 const namespace = `hotel-${hotelId}`;
                 const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX_NAME || 'hotel-bookings');
                 
-                const vectorStore = await PineconeStore.fromExistingIndex(embeddings,{
-                    pineconeIndex,
-                    namespace,
-                });
+                const vectorStore = await PineconeStore.fromExistingIndex(
+                    embeddings,
+                    {
+                        pineconeIndex: pineconeIndex as any,
+                        namespace,
+                    }
+                );
                 
                 const retriever = vectorStore.asRetriever({
                     k: 3,
