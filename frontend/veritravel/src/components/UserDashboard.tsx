@@ -1,10 +1,13 @@
 "use client"
 
-import { useState } from "react"
 import { type SubmitHandler, useForm } from "react-hook-form"
 import { z } from "zod"
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ethers } from "ethers";
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@/components/ui/button"
+import BookingNft from "@/contracts/BookingNft.json"
+import ProofOfStayNft from "@/contracts/StayProofNFT.json"
 import {
   Dialog,
   DialogContent,
@@ -42,6 +45,9 @@ type StayDetails = {
   feature: string
   image?: string
   description: string
+  bookingDate?: string
+  hotelId?: string
+  tokenId?: string
 }
 
 const myBookings: StayDetails[] = [
@@ -122,6 +128,13 @@ export default function UserDashboard() {
   const [registerOpen, setRegisterOpen] = useState(false)
   const [shippingOpen, setShippingOpen] = useState(false)
 
+  const [bookingNftContract, setBookingNftContract] = useState<ethers.Contract | null>(null);
+  const [proofOfStayContract,setProofOfStayContract] = useState<ethers.Contract | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string|null>(null);
+  const [bookingNfts, setBookingNfts] = useState<any[]>([])
+  const [proofOfStayNfts,setProofOfStayNfts] = useState<any[]>([])
+  const [isLoadingNfts, setIsLoadingNfts] = useState(true)
+
   const registerForm = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
@@ -139,6 +152,35 @@ export default function UserDashboard() {
       note: "",
     },
   })
+
+  // Convert NFT metadata to StayDetails format
+  const nftBookings = useMemo(() => {
+    return bookingNfts.map((nft) => ({
+      name: nft.name || "Hotel Booking",
+      price: 0, 
+      location: "View Details", 
+      rating: 0, 
+      size: "N/A",
+      rooms: "N/A",
+      feature: "NFT Booking",
+      image: nft.image,
+      description: nft.description || "Your booking NFT",
+      bookingDate: nft.bookingDate,
+      hotelId: nft.hotelId,
+      tokenId: nft.tokenId,
+    }))
+  }, [bookingNfts])
+
+  const proofofstays = useMemo(() => {
+    return proofOfStayNfts.map((nft) => ({
+      name: nft.name || "Proof of stay",
+      image: nft.image,
+      stayDate: nft.bookingDate,
+      description: nft.description || "proof of stay NFT",
+      hotelId: nft.hotelId,
+      tokenId: nft.tokenId,
+    }))
+  }, [proofOfStayNfts])
 
   const handleRating = (hotelName: string, value: number) => {
     setRatings((prev) => ({
@@ -162,6 +204,105 @@ export default function UserDashboard() {
   if (!selectedHotel) {
     return null
   }
+  
+  const getMetaMaskProvider = () => {
+    if (window.ethereum?.providers) {
+      return (window.ethereum.providers as Array<{ isMetaMask?: boolean }>).find((p) => p.isMetaMask);
+    }
+    if (window.ethereum?.isMetaMask) return window.ethereum;
+    return null;
+  };
+  
+  const connectWallet = async()=>{
+    try {
+      setIsLoadingNfts(true)
+      const ethereum = getMetaMaskProvider();
+      if (!ethereum) return alert("Please install or enable MetaMask");
+
+      const targetChainId = "0x128"; // Hedera Testnet
+
+      let chainId = await ethereum.request({ method: "eth_chainId" });
+      if (chainId !== targetChainId) {
+        try {
+          await ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: targetChainId }],
+          });
+        } catch (switchError) {
+          if (
+            typeof switchError === "object" &&
+            switchError !== null &&
+            "code" in switchError &&
+            (switchError as { code?: unknown }).code === 4902
+          ) {
+            await ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [
+                {
+                  chainId: targetChainId,
+                  chainName: "Hedera Testnet",
+                  rpcUrls: ["https://testnet.hashio.io/api"],
+                  nativeCurrency: {
+                    name: "HBAR",
+                    symbol: "HBAR",
+                    decimals: 18,
+                  },
+                  blockExplorerUrls: ["https://hashscan.io/testnet"],
+                },
+              ],
+            });
+          } else throw switchError;
+        }
+      }
+
+      const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+      const provider = new ethers.BrowserProvider(ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      setWalletAddress(address);
+
+      const bookingContract = new ethers.Contract(
+        BookingNft.address,
+        BookingNft.abi,
+        signer
+      )
+
+      setBookingNftContract(bookingContract)
+      const proofofstayContract = new ethers.Contract(
+        ProofOfStayNft.address,
+        ProofOfStayNft.abi,
+        signer
+      )
+      setProofOfStayContract(proofofstayContract)
+      const bookings = [];
+      const balance = await bookingContract.balanceOf(address);
+      for (let i = 0; i < balance; i++) {
+        const tokenId = await bookingContract.tokenOfOwnerByIndex(address, i);
+        const tokenURI = await bookingContract.tokenURI(tokenId);
+        const metadata = await fetch(tokenURI).then(res => res.json());
+        bookings.push({ tokenId: tokenId.toString(), ...metadata });
+      }
+      const bal = await proofofstayContract.balanceOf(address);
+      const stays = [];
+      for (let i = 0; i < bal; i++) {
+        const tokenId = await proofofstayContract.tokenOfOwnerByIndex(address, i);
+        const tokenURI = await proofofstayContract.tokenURI(tokenId);
+        const metadata = await fetch(tokenURI).then(res => res.json());
+        stays.push({ tokenId: tokenId.toString(), ...metadata });
+      }
+      console.log("got bookings ",bookings);
+      setBookingNfts(bookings);
+      setProofOfStayNfts(stays);
+    } catch (error) {
+      console.error("Error connecting wallet:", error);
+    } finally {
+      setIsLoadingNfts(false)
+    }
+  }
+
+  useEffect(()=>{
+    connectWallet()
+  },[])
 
   return (
     <div className="min-h-screen bg-[#EDE7D6] text-neutral-900">
@@ -193,7 +334,7 @@ export default function UserDashboard() {
                         />
                       ) : (
                         <div className="flex flex-col items-center gap-4 text-neutral-500">
-                            //Image placeholder
+                          {/* Image placeholder */}
                         </div>
                       )}
                     </div>
@@ -300,7 +441,7 @@ export default function UserDashboard() {
             </section>
 
             <aside className="flex flex-col gap-8">
-              <section className="rounded-[36px] border border-black/12 bg-[#F3F0E4] p-6 shadow-[0_18px_34px_rgba(0,0,0,0.06)]">
+              {/* <section className="rounded-[36px] border border-black/12 bg-[#F3F0E4] p-6 shadow-[0_18px_34px_rgba(0,0,0,0.06)]">
                 <div className="mb-6 flex items-center justify-between">
                   <h2 className="text-2xl font-serif tracking-tight text-neutral-900">NFT&apos;s</h2>
                   <div className="flex h-10 w-10 items-center justify-center rounded-full border border-black/20 bg-white text-neutral-700">
@@ -316,6 +457,69 @@ export default function UserDashboard() {
                     Unlock travel perks via tokenized experiences.
                   </p>
                 </div>
+              </section> */}
+              <section className="rounded-[36px] border border-black/12 bg-[#F8F6EC] p-6 shadow-[0_18px_34px_rgba(0,0,0,0.05)]">
+                <div className="mb-6 flex items-center justify-between">
+                  <h2 className="text-2xl font-serif tracking-tight text-neutral-900">Proof of Stay NFTs</h2>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-black/20 bg-white text-neutral-700">
+                    <span className="text-xs font-semibold">{proofOfStayNfts.length}</span>
+                  </div>
+                </div>
+                {isLoadingNfts ? (
+                  <div className="flex h-56 flex-col items-center justify-center rounded-[28px] border border-dashed border-black/20 bg-white/60 text-center">
+                    <div className="text-4xl">⏳</div>
+                    <p className="mt-4 text-sm font-semibold uppercase tracking-[0.3em] text-neutral-600">
+                      Loading...
+                    </p>
+                  </div>
+                ) : proofofstays.length === 0 ? (
+                  <div className="flex h-56 flex-col items-center justify-center rounded-[28px] border border-dashed border-black/20 bg-white/60 text-center">
+                    <div className="text-5xl">🏆</div>
+                    <p className="mt-4 text-sm font-semibold uppercase tracking-[0.3em] text-neutral-600">
+                      No proof NFTs yet
+                    </p>
+                    <p className="mt-2 text-xs text-neutral-500">
+                      Complete your stays to earn proof NFTs.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {proofofstays.map((nft, idx) => (
+                      <div 
+                        key={`proof-${nft.tokenId}-${idx}`}
+                        className="rounded-[20px] border border-black/10 bg-white/80 p-4 shadow-sm"
+                      >
+                        {nft.image && (
+                          <div className="mb-3 overflow-hidden rounded-2xl border border-black/10">
+                            <img 
+                              src={nft.image} 
+                              alt={nft.name || 'Proof of Stay NFT'}
+                              className="h-32 w-full object-cover"
+                            />
+                          </div>
+                        )}
+                        <p className="text-sm font-semibold text-neutral-900">{nft.name || 'Stay Proof'}</p>
+                        <p className="mt-1 text-xs text-neutral-600">{nft.description}</p>
+                        {nft.stayDate && (
+                          <p className="mt-2 text-xs text-neutral-500">
+                            Stayed: {new Date(nft.stayDate).toLocaleDateString()}
+                          </p>
+                        )}
+                        {nft.hotelId && (
+                          <p className="mt-1 text-xs uppercase tracking-[0.28em] text-neutral-500">
+                            ID: {nft.hotelId}
+                          </p>
+                        )}
+                        <div className="mt-3 flex items-center justify-between">
+                          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-600">
+                            NFT #{nft.tokenId}
+                          </div>
+                          
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
 
               <section className="relative overflow-hidden rounded-[36px] border border-black/12 bg-[#F8F6EC] p-6 shadow-[0_18px_34px_rgba(0,0,0,0.05)]">
@@ -336,60 +540,187 @@ export default function UserDashboard() {
                 <div className="absolute -bottom-8 right-3 text-4xl text-neutral-500">.</div>
               </section>
             </aside>
+            
           </div>
 
+          {/* <section className="rounded-[36px] border border-black/12 bg-white/70 p-7 shadow-[0_18px_38px_rgba(0,0,0,0.06)]">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <h2 className="text-2xl font-serif tracking-tight text-neutral-900">My bookings</h2>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-neutral-500">
+                {nftBookings.length > 0 ? 'Tap the stars to rate your stay' : 'Your NFT bookings will appear here'}
+              </span>
+            </div>
+            {isLoadingNfts ? (
+              <div className="mt-6 flex h-40 items-center justify-center">
+                <div className="text-sm font-semibold uppercase tracking-[0.3em] text-neutral-500">
+                  Loading your bookings...
+                </div>
+              </div>
+            ) : nftBookings.length === 0 ? (
+              <div className="mt-6 flex h-40 flex-col items-center justify-center rounded-[28px] border border-dashed border-black/20 bg-white/60">
+                <div className="text-4xl">🏨</div>
+                <p className="mt-4 text-sm font-semibold uppercase tracking-[0.3em] text-neutral-600">
+                  No bookings yet
+                </p>
+                <p className="mt-2 text-xs text-neutral-500">
+                  Your booking NFTs will appear here once you make a reservation
+                </p>
+              </div>
+            ) : (
+              <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {nftBookings.map((booking, idx) => {
+                  const activeRating = ratings[booking.name] ?? 0
+                  return (
+                    <div
+                      key={`${booking.tokenId}-${idx}`}
+                      className="flex h-full flex-col justify-between rounded-[28px] border border-black/12 bg-[#F6F1E0] p-6 shadow-[0_12px_24px_rgba(0,0,0,0.06)]"
+                    >
+                      <div className="space-y-3">
+                        {booking.image && (
+                          <div className="mb-3 overflow-hidden rounded-2xl border border-black/10">
+                            <img 
+                              src={booking.image} 
+                              alt={booking.name}
+                              className="h-32 w-full object-cover"
+                            />
+                          </div>
+                        )}
+                        <p className="text-lg font-serif tracking-tight text-neutral-900">{booking.name}</p>
+                        <p className="text-xs text-neutral-600">{booking.description}</p>
+                        {booking.bookingDate && (
+                          <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
+                            <span className="uppercase tracking-[0.28em]">Booked:</span>
+                            <span>{new Date(booking.bookingDate).toLocaleDateString()}</span>
+                          </div>
+                        )}
+                        {booking.hotelId && (
+                          <div className="text-xs uppercase tracking-[0.28em] text-neutral-500">
+                            ID: {booking.hotelId}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-6 flex items-center justify-between">
+                        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700">
+                          NFT #{booking.tokenId}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((value) => (
+                            <button
+                              key={`${booking.tokenId}-rate-${value}`}
+                              type="button"
+                              className="rounded-full p-1 transition hover:scale-110"
+                              onClick={() => handleRating(booking.name, value)}
+                              aria-label={`Rate ${booking.name} ${value} star${value > 1 ? "s" : ""}`}
+                              title={`Rate ${value}`}
+                            >
+                              <Star
+                                className={`h-5 w-5 ${
+                                  value <= activeRating
+                                    ? "fill-[#E2BA67] text-[#E2BA67]"
+                                    : "text-neutral-400"
+                                }`}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section> */}
           <section className="rounded-[36px] border border-black/12 bg-white/70 p-7 shadow-[0_18px_38px_rgba(0,0,0,0.06)]">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-2xl font-serif tracking-tight text-neutral-900">My bookings</h2>
               <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-neutral-500">
-                Tap the stars to rate your stay
+                {nftBookings.length > 0 ? 'Manage your reservations' : 'Your NFT bookings will appear here'}
               </span>
             </div>
-            <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {myBookings.map((booking, idx) => {
-                const activeRating = ratings[booking.name] ?? 0
-                return (
-                  <div
-                    key={`${booking.name}-${idx}`}
-                    className="flex h-full flex-col justify-between rounded-[28px] border border-black/12 bg-[#F6F1E0] p-6 shadow-[0_12px_24px_rgba(0,0,0,0.06)]"
-                  >
-                    <div className="space-y-3">
-                      <p className="text-lg font-serif tracking-tight text-neutral-900">{booking.name}</p>
-                      <p className="text-xs uppercase tracking-[0.28em] text-neutral-600">{booking.location}</p>
-                      <div className="flex items-center gap-2 text-sm font-semibold text-neutral-800">
-                        <MapPin className="h-4 w-4 text-neutral-600" />
-                        {booking.rooms} · {booking.size}
-                      </div>
-                    </div>
-                    <div className="mt-6 flex items-center justify-between">
-                      <div className="text-sm font-semibold uppercase tracking-[0.24em] text-neutral-700">
-                        {booking.price} ETH
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {[1, 2, 3, 4, 5].map((value) => (
-                          <button
-                            key={`${booking.name}-rate-${value}`}
-                            type="button"
-                            className="rounded-full p-1 transition hover:scale-110"
-                            onClick={() => handleRating(booking.name, value)}
-                            aria-label={`Rate ${booking.name} ${value} star${value > 1 ? "s" : ""}`}
-                            title={`Rate ${value}`}
-                          >
-                            <Star
-                              className={`h-5 w-5 ${
-                                value <= activeRating
-                                  ? "fill-[#E2BA67] text-[#E2BA67]"
-                                  : "text-neutral-400"
-                              }`}
+            {isLoadingNfts ? (
+              <div className="mt-6 flex h-40 items-center justify-center">
+                <div className="text-sm font-semibold uppercase tracking-[0.3em] text-neutral-500">
+                  Loading your bookings...
+                </div>
+              </div>
+            ) : nftBookings.length === 0 ? (
+              <div className="mt-6 flex h-40 flex-col items-center justify-center rounded-[28px] border border-dashed border-black/20 bg-white/60">
+                <div className="text-4xl">🏨</div>
+                <p className="mt-4 text-sm font-semibold uppercase tracking-[0.3em] text-neutral-600">
+                  No bookings yet
+                </p>
+                <p className="mt-2 text-xs text-neutral-500">
+                  Your booking NFTs will appear here once you make a reservation
+                </p>
+              </div>
+            ) : (
+              <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {nftBookings.map((booking, idx) => {
+                  return (
+                    <div
+                      key={`${booking.tokenId}-${idx}`}
+                      className="flex h-full flex-col justify-between rounded-[28px] border border-black/12 bg-[#F6F1E0] p-6 shadow-[0_12px_24px_rgba(0,0,0,0.06)]"
+                    >
+                      <div className="space-y-3">
+                        {booking.image && (
+                          <div className="mb-3 overflow-hidden rounded-2xl border border-black/10">
+                            <img 
+                              src={booking.image} 
+                              alt={booking.name}
+                              className="h-32 w-full object-cover"
                             />
-                          </button>
-                        ))}
+                          </div>
+                        )}
+                        <p className="text-lg font-serif tracking-tight text-neutral-900">{booking.name}</p>
+                        <p className="text-xs text-neutral-600">{booking.description}</p>
+                        {booking.bookingDate && (
+                          <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
+                            <span className="uppercase tracking-[0.28em]">Booked:</span>
+                            <span>{new Date(booking.bookingDate).toLocaleDateString()}</span>
+                          </div>
+                        )}
+                        {booking.hotelId && (
+                          <div className="text-xs uppercase tracking-[0.28em] text-neutral-500">
+                            ID: {booking.hotelId}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-6 space-y-3">
+                        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700">
+                          NFT #{booking.tokenId}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-red-50 hover:text-red-600 hover:border-red-300"
+                            onClick={() => console.log('Cancel booking', booking.tokenId)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-green-50 hover:text-green-600 hover:border-green-300"
+                            onClick={() => console.log('Check in', booking.tokenId)}
+                          >
+                            Check In
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-300"
+                            onClick={() => console.log('Rate stay', booking.tokenId)}
+                          >
+                            Rate
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </section>
 
           <section className="relative">

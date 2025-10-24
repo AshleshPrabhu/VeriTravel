@@ -180,13 +180,53 @@ export default function HotelDashboard({
   // );
 
   // Connect Waller & Load Contract
+  const getMetaMaskProvider = () => {
+  if (window.ethereum?.providers) {
+    return (window.ethereum.providers as Array<{ isMetaMask?: boolean }>).find((p) => p.isMetaMask);
+  }
+  if (window.ethereum?.isMetaMask) return window.ethereum;
+  return null;
+};
   const connectWallet = async () => {
     try {
-      const { ethereum } = window;
-      if (!ethereum) return alert("Install MetaMask");
+      const ethereum = getMetaMaskProvider();
+      if (!ethereum) return alert("Please install or enable MetaMask");
 
-      const chainId = await ethereum.request({ method: "eth_chainId" });
-      if (chainId !== "0x128") return alert("Switch to Hedera Testnet");
+      const targetChainId = "0x128"; // Hedera Testnet
+
+      let chainId = await ethereum.request({ method: "eth_chainId" });
+      if (chainId !== targetChainId) {
+        try {
+          await ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: targetChainId }],
+          });
+        } catch (switchError) {
+          if (
+            typeof switchError === "object" &&
+            switchError !== null &&
+            "code" in switchError &&
+            (switchError as { code?: unknown }).code === 4902
+          ) {
+            await ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [
+                {
+                  chainId: targetChainId,
+                  chainName: "Hedera Testnet",
+                  rpcUrls: ["https://testnet.hashio.io/api"],
+                  nativeCurrency: {
+                    name: "HBAR",
+                    symbol: "HBAR",
+                    decimals: 18,
+                  },
+                  blockExplorerUrls: ["https://hashscan.io/testnet"],
+                },
+              ],
+            });
+          } else throw switchError;
+        }
+      }
 
       const accounts = await ethereum.request({ method: "eth_requestAccounts" });
       const provider = new ethers.BrowserProvider(ethereum);
@@ -438,7 +478,7 @@ export default function HotelDashboard({
 
   return (
     <div className="min-h-screen bg-[#EFEBD9] font-sans">
-      <Header activeView={activeView} onNavigate={onNavigate} />
+      <Header activeView={activeView} />
 
       <main className="px-4 pb-16 pt-28 sm:px-8 lg:px-12">
         <div className="flex w-full flex-col gap-12">
@@ -452,7 +492,14 @@ export default function HotelDashboard({
                   <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
                     {hotel?.name}
                   </span>
-                  <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
+                  {
+                    hotel?.tags.map((tag, index) => (
+                      <span key={index} className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
+                        {tag}
+                      </span>
+                    ))
+                  }
+                  {/* <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
                     {hotel?.tags[0]}
                   </span>
                   <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
@@ -463,7 +510,7 @@ export default function HotelDashboard({
                   </span>
                   <span className="rounded-full border border-black/12 bg-[#F3EEDB] px-6 py-2 text-xs font-semibold tracking-[0.08em] text-neutral-700">
                     {hotel?.tags[3]}
-                  </span>
+                  </span> */}
                 </div>
 
                 <button

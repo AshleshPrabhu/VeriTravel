@@ -1,11 +1,12 @@
 import type { ReactElement } from "react";
-import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 
 import ChatView from "./components/ChatView";
 import Header from "./components/Header/Header";
 import HotelDashboard from "./components/HotelDashboard";
 import UserDashboard from "./components/UserDashboard";
 import LoginPage from "./pages/login/page";
+import SignupPage from "./pages/SignupPage";
 import { RoleProvider, useRole, type UserRole } from "@/context/role-context";
 
 type AppRoute = {
@@ -35,9 +36,16 @@ function RoleRoute({ element, roles }: { element: ReactElement; roles: UserRole[
 }
 
 function AppLayout() {
+  const location = useLocation();
+  const path = location.pathname;
+  let activeView: "user" | "hotel" | "chat" = "user";
+  if (path === "/dashboard") activeView = "user";
+  else if (path === "/hotel-ops") activeView = "hotel";
+  else if (path === "/agent") activeView = "chat";
+
   return (
     <>
-      <Header />
+      <Header activeView={activeView} />
       <Outlet />
     </>
   );
@@ -46,7 +54,9 @@ function AppLayout() {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<LoginPage />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
       <Route element={<AppLayout />}>
         {appRoutes.map(({ path, element, roles }) => (
           <Route key={path} path={path} element={<RoleRoute element={element} roles={roles} />} />

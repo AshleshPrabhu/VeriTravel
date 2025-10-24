@@ -4,21 +4,22 @@ import { Search, Bell } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 
 export type HeaderView = "hotel" | "user" | "chat";
 
 type HeaderProps = {
   activeView?: HeaderView;
-  onNavigate?: (view: HeaderView) => void;
 };
 
-const navItems: { label: string; view: HeaderView }[] = [
-  { label: "DASHBOARD", view: "user" },
-  { label: "HOTEL OPS", view: "hotel" },
-  { label: "SLOFY", view: "chat" },
+const navItems: { label: string; view: HeaderView; route: string }[] = [
+  { label: "DASHBOARD", view: "user", route: "/dashboard" },
+  { label: "HOTEL OPS", view: "hotel", route: "/hotel-ops" },
+  { label: "SLOFY", view: "chat", route: "/agent" },
 ];
 
-export default function Header({ activeView = "hotel", onNavigate }: HeaderProps) {
+export default function Header({ activeView = "hotel" }: HeaderProps) {
+  const navigate = useNavigate();
   return (
     <header className="fixed top-0 left-0 z-50 flex w-full justify-center p-4">
       <div className="flex w-[90%] max-w-6xl items-center justify-between rounded-full border border-black/10 bg-[#E7E3D5] px-6 py-3 shadow-md backdrop-blur-sm">
@@ -35,7 +36,7 @@ export default function Header({ activeView = "hotel", onNavigate }: HeaderProps
               <button
                 key={item.view}
                 type="button"
-                onClick={() => onNavigate?.(item.view)}
+                onClick={() => navigate(item.route)}
                 className={cn(
                   "transition",
                   isActive ? "text-neutral-900" : "text-black hover:text-gray-700"
