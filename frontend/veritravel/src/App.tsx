@@ -1,26 +1,68 @@
-import { useState } from "react";
+import type { ReactElement } from "react";
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import ChatView from "./components/ChatView";
+import Header from "./components/Header/Header";
 import HotelDashboard from "./components/HotelDashboard";
 import UserDashboard from "./components/UserDashboard";
-import type { HeaderView } from "@/components/Header/Header";
+import LoginPage from "./pages/login/page";
+import { RoleProvider, useRole, type UserRole } from "@/context/role-context";
 
-function App() {
-  const [activeView, setActiveView] = useState<HeaderView>("user");
+type AppRoute = {
+  path: string;
+  element: ReactElement;
+  roles: UserRole[];
+};
 
-  const handleNavigate = (view: HeaderView) => {
-    setActiveView(view);
-  };
+const appRoutes: AppRoute[] = [
+  { path: "dashboard", element: <UserDashboard />, roles: ["user"] },
+  { path: "hotel-ops", element: <HotelDashboard />, roles: ["hotel"] },
+  { path: "agent", element: <ChatView />, roles: ["user", "hotel"] },
+];
 
-  switch (activeView) {
-    case "user":
-      return <UserDashboard activeView={activeView} onNavigate={handleNavigate} />;
-    case "chat":
-      return <ChatView activeView={activeView} onNavigate={handleNavigate} />;
-    case "hotel":
-    default:
-      return <HotelDashboard activeView={activeView} onNavigate={handleNavigate} />;
-  }
+function RoleAwareRedirect() {
+  const { role } = useRole();
+  const target = role === "hotel" ? "/hotel-ops" : "/dashboard";
+  return <Navigate to={target} replace />;
 }
 
-export default App;
+function RoleRoute({ element, roles }: { element: ReactElement; roles: UserRole[] }) {
+  const { role } = useRole();
+  if (!roles.includes(role)) {
+    return <RoleAwareRedirect />;
+  }
+  return element;
+}
+
+function AppLayout() {
+  return (
+    <>
+      <Header />
+      <Outlet />
+    </>
+  );
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<LoginPage />} />
+      <Route element={<AppLayout />}>
+        {appRoutes.map(({ path, element, roles }) => (
+          <Route key={path} path={path} element={<RoleRoute element={element} roles={roles} />} />
+        ))}
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <RoleProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </RoleProvider>
+  );
+}

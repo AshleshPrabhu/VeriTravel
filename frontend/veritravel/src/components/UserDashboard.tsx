@@ -4,7 +4,6 @@ import { useState } from "react"
 import { type SubmitHandler, useForm } from "react-hook-form"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import Header, { type HeaderView } from "@/components/Header/Header"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -116,12 +115,7 @@ const shippingSchema = z.object({
 type RegisterFormValues = z.infer<typeof registerSchema>
 type ShippingFormValues = z.infer<typeof shippingSchema>
 
-type UserDashboardProps = {
-  activeView?: HeaderView
-  onNavigate?: (view: HeaderView) => void
-}
-
-export default function UserDashboard({ activeView = "user", onNavigate }: UserDashboardProps) {
+export default function UserDashboard() {
   const curatedHotels = [...myBookings, ...topDestinations]
   const [selectedHotel, setSelectedHotel] = useState<StayDetails | null>(curatedHotels[0] ?? null)
   const [ratings, setRatings] = useState<Record<string, number>>({})
@@ -171,8 +165,6 @@ export default function UserDashboard({ activeView = "user", onNavigate }: UserD
 
   return (
     <div className="min-h-screen bg-[#EDE7D6] text-neutral-900">
-      <Header activeView={activeView} onNavigate={onNavigate} />
-
       <main className="px-4 pb-20 pt-32 md:px-10">
         <div className="mx-auto flex w-full flex-col gap-14">
           <div className="grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
