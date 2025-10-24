@@ -8,6 +8,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@/components/ui/button"
 import BookingNft from "@/contracts/BookingNft.json"
 import ProofOfStayNft from "@/contracts/StayProofNFT.json"
+import bookingEscrowContract from "@/contracts/BookingEscrow.json"
+import HotelRegistryContract from "@/contracts/HotelRegistry.json"
+
 import {
   Dialog,
   DialogContent,
@@ -130,6 +133,10 @@ export default function UserDashboard() {
 
   const [bookingNftContract, setBookingNftContract] = useState<ethers.Contract | null>(null);
   const [proofOfStayContract,setProofOfStayContract] = useState<ethers.Contract | null>(null);
+  const [bookingContract, setBookingContract] = useState<ethers.Contract | null>(null);
+  const [hotelRegistryContract, setHotelRegistryContract] = useState<ethers.Contract | null>(null);
+
+
   const [walletAddress, setWalletAddress] = useState<string|null>(null);
   const [bookingNfts, setBookingNfts] = useState<any[]>([])
   const [proofOfStayNfts,setProofOfStayNfts] = useState<any[]>([])
@@ -267,6 +274,7 @@ export default function UserDashboard() {
         signer
       )
 
+
       setBookingNftContract(bookingContract)
       const proofofstayContract = new ethers.Contract(
         ProofOfStayNft.address,
@@ -274,6 +282,20 @@ export default function UserDashboard() {
         signer
       )
       setProofOfStayContract(proofofstayContract)
+
+      const bookingescrow = new ethers.Contract(
+        bookingEscrowContract.address,
+        bookingEscrowContract.abi,
+        signer
+      )
+      setBookingContract(bookingescrow)
+
+      const hotelregistry = new ethers.Contract(
+        HotelRegistryContract.address,
+        HotelRegistryContract.abi,
+        signer
+      )
+      setHotelRegistryContract(hotelregistry)
       const bookings = [];
       const balance = await bookingContract.balanceOf(address);
       for (let i = 0; i < balance; i++) {
@@ -303,6 +325,62 @@ export default function UserDashboard() {
   useEffect(()=>{
     connectWallet()
   },[])
+
+  const handleCancelBooking = async(bookingId: number)=>{
+    try{
+      const res = confirm("Are you sure you want to cancel this booking?");
+      if(!res) return;
+      if(!bookingContract || !walletAddress) return;
+      const tx = await bookingContract.cancelBooking(bookingId);
+      await tx.wait();
+      console.log("Booking cancelled:", bookingId);
+    }catch(error){
+      console.error("Error cancelling booking:", error);
+    }
+  }
+
+  const handleCheckIn = async(bookingId:number)=>{
+    try {
+      if(!bookingContract || !walletAddress) return;
+      const tx = await bookingContract.checkInHotel(bookingId);
+      await tx.wait();
+      console.log("Checked in to booking:", bookingId);
+      
+    } catch (error) {
+      console.error("Error during check-in:", error);
+      
+    }
+  }
+
+  const handleRate = async(bookingId:number)=>{
+    try {
+      let isValid = false;
+      for(const items of proofofstays){
+        //note: need to check the data types
+        if(items.hotelId === bookingId.toString()){
+          isValid = true;
+          break;
+        }
+      }
+      if(!hotelRegistryContract || !walletAddress) return;
+      if(!isValid){
+        alert("You need to have a proof of stay NFT to rate this booking.");
+      }else{
+        // can convert it to modal
+
+        const rating = prompt("Enter your rating (1-5):");
+        if(rating){
+          const tx = await hotelRegistryContract.rateHotel(bookingId,parseInt(rating));
+          await tx.wait();
+          console.log("Rated booking:", bookingId, "with rating:", rating);
+        }
+      }
+
+    } catch (error) {
+      console.error("Error rating booking:", error);  
+      
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#EDE7D6] text-neutral-900">
@@ -694,7 +772,7 @@ export default function UserDashboard() {
                             type="button"
                             variant="outline"
                             className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-red-50 hover:text-red-600 hover:border-red-300"
-                            onClick={() => console.log('Cancel booking', booking.tokenId)}
+                            onClick={() => handleCancelBooking(booking.tokenId)}
                           >
                             Cancel
                           </Button>
@@ -702,7 +780,7 @@ export default function UserDashboard() {
                             type="button"
                             variant="outline"
                             className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-green-50 hover:text-green-600 hover:border-green-300"
-                            onClick={() => console.log('Check in', booking.tokenId)}
+                            onClick={() => handleCheckIn(booking.tokenId)}
                           >
                             Check In
                           </Button>
@@ -710,7 +788,7 @@ export default function UserDashboard() {
                             type="button"
                             variant="outline"
                             className="rounded-xl border border-black/12 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-neutral-700 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-300"
-                            onClick={() => console.log('Rate stay', booking.tokenId)}
+                            onClick={() => handleRate(booking.tokenId)}
                           >
                             Rate
                           </Button>
