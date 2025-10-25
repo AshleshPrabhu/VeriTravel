@@ -2,6 +2,8 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import dotenv from 'dotenv';
 import path from "path";
 import { fileURLToPath } from "url";
+import { BufferMemory } from "langchain/memory";
+import { ChatMessageHistory } from "langchain/memory";
 import cors from 'cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,6 +68,7 @@ export class RoutingAgentExecutor {
     private hotelSearchTool: HotelSearchTool;
     private systemPrompt: string = '';
     private tools: DynamicTool[] = [];
+    private memory: BufferMemory;
 
     async cancelTask(taskId: string): Promise<void> {
         console.log(`Cancelling task ${taskId}`);
@@ -73,6 +76,12 @@ export class RoutingAgentExecutor {
 
     constructor() {
         this.hotelSearchTool = new HotelSearchTool();
+        this.memory = new BufferMemory({
+            memoryKey: "history",
+            inputKey: "input",
+            outputKey: "output",
+            chatHistory: new ChatMessageHistory(),
+        });
         this.initializeSystemPrompt();
     }
     
@@ -190,6 +199,8 @@ export class RoutingAgentExecutor {
                - Set responseType: "booking_confirmation"
                - message: confirmation details
                - Keep relevant hotel info if available
+               - metadata.requiresRouting: true
+               - Extract and set targetHotelName from the query or context if mentioned
                Examples: "Yes, confirm my booking", "I want to book this", "Reserve the room"
 
             CRITICAL INSTRUCTIONS:
@@ -197,6 +208,7 @@ export class RoutingAgentExecutor {
             - Use null for fields that don't apply to the responseType
             - For hotel_search, you'll need to call search tool (handled separately)
             - For hotel_specific, extract the exact hotel name from user's message
+            - For booking_confirmation, extract the hotel name if mentioned (e.g., "book Seaside Inn")
             - "show all hotels", "list hotels", "give me all hotels" should be hotel_search, NOT conversation
             - Be confident in your classification
         `;
@@ -257,9 +269,14 @@ export class RoutingAgentExecutor {
             // Get all available hotels for context
             const allHotels = await this.hotelSearchTool.searchHotels({});
             const hotelNamesContext = allHotels.map(h => `${h.name} (ID: ${h.id})`).join(', ');
+            const pastMessages = await this.memory.loadMemoryVariables({});
+            const context = pastMessages.history || "";
+
 
             // Ask LLM to classify and structure the response
             const classificationPrompt = `
+                context: ${context}
+
                 Available hotels in database: ${hotelNamesContext}
 
                 User query: "${messageText}"
@@ -277,6 +294,8 @@ export class RoutingAgentExecutor {
                 
                 If responseType is "hotel_specific", extract the hotel name from the query and match it with available hotels to get the ID.
                 
+                If responseType is "booking_confirmation", extract the target hotel name from the query or context.
+                
                 Return ONLY valid JSON, no additional text.
             `;
 
@@ -284,6 +303,11 @@ export class RoutingAgentExecutor {
                 { role: "system", content: this.systemPrompt },
                 { role: "user", content: classificationPrompt }
             ]);
+
+            await this.memory.saveContext(
+                {input : messageText},
+                { output: typeof classificationResponse.content === 'string' ? classificationResponse.content : JSON.stringify(classificationResponse.content) },
+            )
 
             let classification: UnifiedAgentResponse;
             try {
@@ -416,6 +440,56 @@ export class RoutingAgentExecutor {
                 }
             }
 
+            if(classification.responseType === 'booking_confirmation'){
+                const pastMessages = await this.memory.loadMemoryVariables({});
+                const fullContext = (pastMessages.history || '') + '\nCurrent query: ' + messageText;
+                const extractPrompt = `
+                    From this context, extract the target hotel name for booking: ${fullContext}
+                    Return ONLY JSON: {"targetHotelName": "exact name or null"}
+                `;
+                const extractResponse = await llm.invoke([{ role: 'user', content: extractPrompt }]);
+                
+                let targetHotelName: string | null = null;
+                try{
+                    const extractContent = typeof extractResponse.content === 'string' ? extractResponse.content : JSON.stringify(extractResponse.content);
+                    const cleanExtract = extractContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+                    const extracted = JSON.parse(cleanExtract);
+                    targetHotelName = extracted.targetHotelName;
+                }catch (e) {
+                    console.error('Failed to parse hotel extraction:', extractResponse.content);
+                }
+                
+                if(!targetHotelName && classification.targetHotelName){
+                    targetHotelName = classification.targetHotelName;
+                }
+                if(targetHotelName){
+                    const matchedHotel = allHotels.find(h => 
+                        h.name.toLowerCase().includes(targetHotelName.toLowerCase()) ||
+                        targetHotelName.toLowerCase().includes(h.name.toLowerCase())
+                    );
+                    
+                    if(matchedHotel){
+                        classification.targetHotelId = `hotel-${matchedHotel.id}`;
+                        classification.targetHotelName = matchedHotel.name;
+                        classification.message = `Confirming your booking for ${matchedHotel.name}... Routing to the hotel agent to complete.`;
+                    }else {
+                        classification.targetHotelId = null;
+                        classification.targetHotelName = null;
+                        classification.message = `I'd love to help with your booking! Which hotel did you have in mind?`;
+                    }
+                }else{
+                    classification.targetHotelId = null;
+                    classification.targetHotelName = null;
+                    classification.message = `Great, let's book a room! Please specify which hotel you'd like to book.`;
+                }
+                
+                classification.metadata = {
+                    ...classification.metadata,
+                    requiresRouting: !!classification.targetHotelId,
+                    suggestedActions: ['Provide booking details', 'Confirm payment']
+                };
+            }
+
             console.log('Final classification:', JSON.stringify(classification, null, 2));
             return classification;
         } catch (error) {
@@ -465,8 +539,10 @@ export class RoutingAgentExecutor {
             const result = await this.processWithLLM(messageText);
             console.log(`[${taskId}] Unified response:`, result);
 
-            // If this is a hotel-specific query, route to hotel agent
-            if (result.responseType === 'hotel_specific' && result.targetHotelId) {
+
+            if ((result.responseType === 'hotel_specific' || result.responseType === 'booking_confirmation') && 
+                result.targetHotelId && 
+                result.metadata?.requiresRouting) {
                 console.log(`[${taskId}] Routing to API Gateway for ${result.targetHotelName} (${result.targetHotelId})`);
                 const gatewayUrl = 'http://localhost:7000';
                 
@@ -540,7 +616,6 @@ export class RoutingAgentExecutor {
                         messageId: uuidv4(),
                         parts: [{ 
                             kind: 'text', 
-                            // ✅ Send the ENTIRE result object as JSON, not just result.message
                             text: JSON.stringify(result, null, 2)
                         }],
                         taskId,
