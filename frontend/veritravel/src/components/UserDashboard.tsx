@@ -274,8 +274,8 @@ export default function UserDashboard() {
         signer
       )
 
-
       setBookingNftContract(bookingContract)
+      
       const proofofstayContract = new ethers.Contract(
         ProofOfStayNft.address,
         ProofOfStayNft.abi,
@@ -298,25 +298,42 @@ export default function UserDashboard() {
       setHotelRegistryContract(hotelregistry)
 
       // Fetch Booking 
-      const bookings = await bookingescrow.getUserBooking(address);
-      let arr = []
-      for (const booking of bookings) {
-        const hotel = await hotelregistry.getHotel(booking.hotelId!)
-        arr.push({ ...booking, hotel })
+      try {
+        const bookings = await bookingescrow.getUserBookings(address);
+        let arr = []
+        for (const booking of bookings) {
+          const hotel = await hotelregistry.getHotel(booking.hotelId!)
+          arr.push({ ...booking, hotel })
+        }
+        setBooking(arr);
+      } catch (bookingError: any) {
+        // If the error is "User has no bookings", just set empty array
+        const errorMessage = bookingError?.reason || bookingError?.message || bookingError?.data?.message || '';
+        if (errorMessage.includes("User has no bookings") || errorMessage.includes("no bookings")) {
+          console.log("No bookings found for user");
+          setBooking([]);
+        } else {
+          console.error("Error fetching bookings:", bookingError);
+          setBooking([]);
+        }
       }
-      setBooking(arr);
 
-
-
-      const bal = await proofofstayContract.balanceOf(address);
-      const stays = [];
-      for (let i = 0; i < bal; i++) {
-        const tokenId = await proofofstayContract.tokenOfOwnerByIndex(address, i);
-        const tokenURI = await proofofstayContract.tokenURI(tokenId);
-        const metadata = await fetch(tokenURI).then(res => res.json());
-        stays.push({ tokenId: tokenId.toString(), ...metadata });
+      // Fetch Proof of Stay NFTs
+      try {
+        const bal = await proofofstayContract.balanceOf(address);
+        const stays = [];
+        for (let i = 0; i < bal; i++) {
+          const tokenId = await proofofstayContract.tokenOfOwnerByIndex(address, i);
+          const tokenURI = await proofofstayContract.tokenURI(tokenId);
+          const metadata = await fetch(tokenURI).then(res => res.json());
+          stays.push({ tokenId: tokenId.toString(), ...metadata });
+        }
+        setProofOfStayNfts(stays);
+      } catch (nftError) {
+        // If there's an error fetching NFTs, just set empty array
+        console.log("No proof of stay NFTs found or error fetching:", nftError);
+        setProofOfStayNfts([]);
       }
-      setProofOfStayNfts(stays);
     } catch (error) {
       console.error("Error connecting wallet:", error);
     } finally {
