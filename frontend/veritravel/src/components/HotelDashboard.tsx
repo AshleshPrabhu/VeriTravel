@@ -181,12 +181,12 @@ export default function HotelDashboard({
 
   // Connect Waller & Load Contract
   const getMetaMaskProvider = () => {
-  if (window.ethereum?.providers) {
-    return (window.ethereum.providers as Array<{ isMetaMask?: boolean }>).find((p) => p.isMetaMask);
-  }
-  if (window.ethereum?.isMetaMask) return window.ethereum;
-  return null;
-};
+    if (window.ethereum?.providers) {
+      return (window.ethereum.providers as Array<{ isMetaMask?: boolean }>).find((p) => p.isMetaMask);
+    }
+    if (window.ethereum?.isMetaMask) return window.ethereum;
+    return null;
+  };
   const connectWallet = async () => {
     try {
       const ethereum = getMetaMaskProvider();

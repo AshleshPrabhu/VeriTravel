@@ -75,14 +75,20 @@ class AgentService {
           console.log('Status update - State:', event.status?.state, 'Message:', messageText);
 
           if (messageText) {
-            // Try to parse as UnifiedAgentResponse
+            // Try to parse as UnifiedAgentResponse JSON
             try {
               const parsedResponse: UnifiedAgentResponse = JSON.parse(messageText);
-              console.log('Parsed agent response:', parsedResponse);
-              onUpdate(parsedResponse, event.final || false);
+              console.log('✅ Parsed as UnifiedAgentResponse:', parsedResponse);
+              
+              // Validate it has the expected structure
+              if (parsedResponse.responseType && parsedResponse.message !== undefined) {
+                onUpdate(parsedResponse, event.final || false);
+              } else {
+                throw new Error('Invalid UnifiedAgentResponse structure');
+              }
             } catch (parseError) {
-              // If not JSON, treat as plain text conversation
-              console.log('Plain text response:', messageText);
+              // If not valid JSON or missing expected fields, treat as plain text
+              console.log('⚠️ Not valid JSON or missing fields, treating as plain text:', messageText);
               const fallbackResponse: UnifiedAgentResponse = {
                 responseType: 'conversation',
                 message: messageText,
@@ -93,6 +99,17 @@ class AgentService {
               };
               onUpdate(fallbackResponse, event.final || false);
             }
+          } else if (event.status?.state === 'working') {
+            // Handle "working" state without message (show loading)
+            const workingResponse: UnifiedAgentResponse = {
+              responseType: 'conversation',
+              message: 'Processing...',
+              hotels: null,
+              targetHotelId: null,
+              targetHotelName: null,
+              metadata: null,
+            };
+            onUpdate(workingResponse, false);
           }
         } else if (event.kind === 'task') {
           console.log('Task created:', event.id);
@@ -106,7 +123,7 @@ class AgentService {
         console.log('✅ Stream completed successfully');
       }
     } catch (error) {
-      console.error('Error in sendMessage:', error);
+      console.error('❌ Error in sendMessage:', error);
       onError(error instanceof Error ? error.message : 'Unknown error');
     }
   }

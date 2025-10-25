@@ -540,7 +540,8 @@ export class RoutingAgentExecutor {
                         messageId: uuidv4(),
                         parts: [{ 
                             kind: 'text', 
-                            text: JSON.stringify(result.message, null, 2)
+                            // ✅ Send the ENTIRE result object as JSON, not just result.message
+                            text: JSON.stringify(result, null, 2)
                         }],
                         taskId,
                         contextId,

@@ -4,7 +4,7 @@ import { useCallback, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
 import AnimatedButton from "@/components/AnimatedButton/AnimatedButton"
-import { HotelDetailsDialog, type HotelDetails } from "@/components/HotelDetailsDialog"
+import { HotelDetailsDialog, type HotelDetails, type HederaCredentials } from "@/components/HotelDetailsDialog"
 import { useRole } from "@/context/role-context"
 
 export default function LoginPage() {
@@ -12,6 +12,9 @@ export default function LoginPage() {
   const { setRole } = useRole()
   const [hotelDialogOpen, setHotelDialogOpen] = useState(false)
   const [hotelDetails, setHotelDetails] = useState<HotelDetails | null>(null)
+  const [isRegistering, setIsRegistering] = useState(false)
+  const [progressMessage, setProgressMessage] = useState("")
+  const [registrationError, setRegistrationError] = useState<string | null>(null)
 
   const handleUserLogin = useCallback(() => {
     setRole("user")
@@ -20,14 +23,35 @@ export default function LoginPage() {
 
   const handleHotelLogin = useCallback(() => {
     setHotelDialogOpen(true)
+    setRegistrationError(null)
   }, [])
 
   const handleHotelSubmit = useCallback(
-    (details: HotelDetails) => {
-      setHotelDetails(details)
-      setRole("hotel")
-      setHotelDialogOpen(false)
-      navigate("/hotel-ops")
+    async (details: HotelDetails, credentials: HederaCredentials) => {
+      try {
+        setIsRegistering(true)
+        setRegistrationError(null)
+        setProgressMessage("Registering hotel on blockchain...")
+        
+        // Store hotel details
+        setHotelDetails(details)
+        
+        // Set role and navigate after successful registration
+        setRole("hotel")
+        setProgressMessage("Registration successful! Redirecting...")
+        
+        // Small delay to show success message
+        setTimeout(() => {
+          setHotelDialogOpen(false)
+          navigate("/hotel-ops")
+        }, 1000)
+        
+      } catch (error: any) {
+        console.error("Hotel registration error:", error)
+        setRegistrationError(error.message || "Failed to register hotel")
+      } finally {
+        setIsRegistering(false)
+      }
     },
     [navigate, setRole]
   )
@@ -68,7 +92,7 @@ export default function LoginPage() {
       {/* RIGHT SECTION (2/3) */}
       <div className="relative m-2 hidden flex-col items-center justify-end overflow-hidden rounded-l-[2rem] bg-[#E7E3D5] lg:col-span-3 lg:flex">
         <blockquote className="mb-12 max-w-md border-l-2 border-black pl-4 text-left text-2xl font-medium text-black">
-          “I knew you’d come back. I’ve been waiting for you.”
+          "I knew you'd come back. I've been waiting for you."
         </blockquote>
         <img
           src="/assets/image/Login.png"
@@ -84,6 +108,9 @@ export default function LoginPage() {
         onSubmit={handleHotelSubmit}
         title="Provide hotel details"
         submitLabel="Enter hotel ops"
+        isRegistering={isRegistering}
+        progressMessage={progressMessage}
+        registrationError={registrationError}
       />
     </div>
   )
