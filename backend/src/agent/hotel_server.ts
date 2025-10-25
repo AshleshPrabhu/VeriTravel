@@ -98,8 +98,8 @@ interface AgentRegistryEntry {
 
 const agentRegistry: AgentRegistryEntry[] = [
     {
-        id: 'hotel-1',
-        name: 'Grand Hotel Agent',
+        id: 'hotel-0',
+        name: 'Seaside Inn',
         agentBaseUrl: 'http://localhost:41241',
     },
     // {
@@ -139,131 +139,51 @@ app.get('/registry', async (req, res) =>{
     }
 });
 
-
 app.post('/', async (req, res) => {
-    // 1. Get ALL data from the body
-    const { agentId, intent, input } = req.body;
+    const { agentId, message } = req.body as { agentId: string; message: Message };
 
-    // 2. Validate top-level fields
-    if (!agentId || !intent || !input) {
-        return res.status(400).json({ 
-            error: "Missing required fields in body: agentId, intent, and input are all required." 
-        });
+    if (!agentId || !message) {
+        return res.status(400).json({ error: "Missing 'agentId' or 'message' in body" });
     }
 
-    // 3. Find agent URL from registry
+    // 1. Find agent URL from registry
     const agentInfo = agentCache.get(agentId);
-    if(!agentInfo){
+    if (!agentInfo) {
         return res.status(404).json({ "error": `Hotel agent '${agentId}' not found in registry` });
     }
 
-    // 4. Build the prompt (This logic is identical to your old server)
-    let prompt = '';
-    let requiredFields = [];
-    let responseKey = 'response';
+    console.log(`[StreamProxy] Forwarding message to ${agentInfo.name} at ${agentInfo.agentBaseUrl}`);
 
-    try{
-        switch(intent){
-            case "booking_confirmation":
-                requiredFields = ['HotelName', 'hotelId', 'userId', 'checkInDate', 'checkOutDate', 'value'];
-                if (requiredFields.some(field => input[field] === undefined)) {
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-                
-                prompt = `Book ${input.HotelName} (hotelId: ${input.hotelId}) for user: ${input.userId} on ${input.checkInDate} to ${input.checkOutDate} for ${input.value} tinybars.`;
-                responseKey = 'transactionBytes';
-                break;
+    // 2. Set headers for Server-Sent Events (SSE)
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders(); // Send headers immediately
 
-            case "hotel_specific":
-                requiredFields = ['question', 'hotelId'];
-                if (requiredFields.some(field => input[field] === undefined)) {
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
+    try {
+        // 3. Create A2A client and get the stream
+        const targetClient = new A2AClient(agentInfo.agentBaseUrl);
+        const stream = targetClient.sendMessageStream({ message });
 
-                prompt = `Answer this question about hotel ID ${input.hotelId}: "${input.question}"`;
-                responseKey = 'answer';
-                break;
-
-            case "check_in":
-                requiredFields = ['bookingId'];
-                if(requiredFields.some(field => input[field] === undefined)){
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-
-                prompt = `Check in to booking ID ${input.bookingId}.`;
-                responseKey = 'transactionBytes';
-                break;
-
-            case "cancel_booking":
-                requiredFields = ['bookingId'];
-                if (requiredFields.some(field => input[field] === undefined)) {
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-                
-                prompt = `Cancel booking ID ${input.bookingId}.`;
-                responseKey = 'transactionBytes';
-                break;
-
-            case "get_booking_details":
-                requiredFields = ['bookingId'];
-                if(requiredFields.some(field => input[field] === undefined)){
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-
-                prompt = `Get booking details for booking ID ${input.bookingId}.`;
-                responseKey = 'details';
-                break;
-
-            case "get_user_bookings":
-                requiredFields = ['userAddress'];
-                if(requiredFields.some(field => input[field] === undefined)){
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-
-                prompt = `Get all bookings for user ${input.userAddress}.`;
-                responseKey = 'bookings';
-                break;
-
-            case "get_hotel_bookings":
-                requiredFields = ['hotelId'];
-                if(requiredFields.some(field => input[field] === undefined)){
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-
-                prompt = `Get all bookings for hotel ID ${input.hotelId}.`;
-                responseKey = 'bookings';
-                break;
-
-            default:
-                return res.status(400).json({ error: `Unsupported intent: ${intent}` });
+        // 4. Pipe events from the agent stream to the HTTP response
+        for await (const event of stream) {
+            // Format as an SSE message: "data: {JSON_STRING}\n\n"
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
         }
 
-        // 5. Call the external A2A agent
-        const agentResponse = await sendMessageAndGetFinalResponse(
-            agentInfo.agentBaseUrl,
-            prompt
-        );
-
-        // 6. Translate the A2A response back to the old API format
-        let responseValue: string;
-
-        if (agentResponse.error && agentResponse.rawText) {
-            responseValue = agentResponse.rawText;
-        } else if (agentResponse.message) {
-            responseValue = agentResponse.message;
-        } else if (agentResponse.error) {
-            throw new Error(agentResponse.error);
-        } else {
-            throw new Error('Unknown response format from A2A agent');
-        }
-
-        // 7. Send the response in the *old* format
-        res.json({ [responseKey]: responseValue });
-
-    }catch(error){
-        console.error(`Error invoking agent ${agentId} for intent ${intent}:`, error);
-        const errorMessage = (error instanceof Error) ? error.message : "Agent invocation failed";
-        res.status(500).json({ error: errorMessage, details: error });
+    } catch (error) {
+        console.error(`[StreamProxy] Error streaming from ${agentId}:`, error);
+        // Try to send an error event to the client
+        const errorEvent = {
+            kind: 'status-update',
+            status: { state: 'failed', message: { kind: 'text', text: (error as Error).message } },
+            final: true
+        };
+        res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+    } finally {
+        // 5. Close the connection
+        console.log(`[StreamProxy] Stream closed for ${agentId}`);
+        res.end();
     }
 });
 

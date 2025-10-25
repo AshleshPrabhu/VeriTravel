@@ -424,9 +424,9 @@ async function main() {
     // NOTE: This is a placeholder config. You must define this with real ENV variables.
     const PORT = process.env.AGENT_PORT || 41241;
     const config: TravelAgentConfig = {
-        id: 'hotel-1-agent', // Unique ID for this specific hotel agent
-        name: 'Grand Hotel Agent',
-        basicInfo: 'Specializes in information and bookings for the Grand Hotel.',
+        id: 'hotel-0-agent', // Unique ID for this specific hotel agent
+        name: 'Seaside Inn',
+        basicInfo: 'Specializes in information and bookings for the Seaside Inn Hotel.',
         hederaAccountId: process.env.HEDERA_ACCOUNT_ID!,
         hederaPrivateKey: process.env.HEDERA_PRIVATE_KEY!,
         bookingTopicId: process.env.BOOKING_TOPIC_ID!,
