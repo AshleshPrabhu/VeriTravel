@@ -62,7 +62,7 @@ const llm = new ChatGoogleGenerativeAI({
 
 
 export class RoutingAgentExecutor {
-    private agents: Map<string, AgentInfo> = new Map();
+    // private agents: Map<string, AgentInfo> = new Map();
     private hotelSearchTool: HotelSearchTool;
     private systemPrompt: string = '';
     private tools: DynamicTool[] = [];
@@ -79,7 +79,7 @@ export class RoutingAgentExecutor {
     public static async create(): Promise<RoutingAgentExecutor> {
         const executor = new RoutingAgentExecutor();
         await executor.initializeTools();
-        await executor.discoverAgents();
+        // await executor.discoverAgents();
         return executor;
     }
 
@@ -249,42 +249,6 @@ export class RoutingAgentExecutor {
         } catch (error) {
             console.error('Error in LLM parsing:', error);
             return {};
-        }
-    }
-
-    private async discoverAgents() {
-        try {
-            const registryUrl = 'http://localhost:7000/registry';
-            const response = await fetch(registryUrl);
-            
-            if (!response.ok) {
-                console.error('Failed to fetch agent registry');
-                return;
-            }
-
-            const data = await response.json() as { agents?: Array<{ id: string; name: string; url: string }> };
-
-            if (data && data.agents && Array.isArray(data.agents)) {
-                for (const agent of data.agents) {
-                    try {
-                        const client = new A2AClient(agent.url);
-                        const card = await client.getAgentCard();
-                        
-                        this.agents.set(agent.id, { 
-                            card, 
-                            url: agent.url 
-                        });
-                        
-                        console.log(`✅ Discovered hotel agent: ${agent.name} (${agent.id}) at ${agent.url}`);
-                    } catch (error) {
-                        console.log(`⚠️  Failed to get card for ${agent.name}:`, error);
-                    }
-                }
-                
-                console.log(`📋 Total agents discovered: ${this.agents.size}`);
-            }
-        } catch (error) {
-            console.error('❌ Error discovering agents from registry:', error);
         }
     }
 
@@ -466,7 +430,7 @@ export class RoutingAgentExecutor {
     ): Promise<void> {
         console.log('🚀 EXECUTE METHOD CALLED');
         console.log('Request context:', JSON.stringify(requestContext, null, 2));
-    
+
         const userMessage = requestContext.userMessage;
         const taskId = requestContext.task?.id || uuidv4();
         const contextId = userMessage.contextId || requestContext.task?.contextId || uuidv4();
@@ -503,45 +467,67 @@ export class RoutingAgentExecutor {
 
             // If this is a hotel-specific query, route to hotel agent
             if (result.responseType === 'hotel_specific' && result.targetHotelId) {
-                console.log(`[${taskId}] Routing to hotel agent for ${result.targetHotelName} (${result.targetHotelId})`);
+                console.log(`[${taskId}] Routing to API Gateway for ${result.targetHotelName} (${result.targetHotelId})`);
+                const gatewayUrl = 'http://localhost:7000';
                 
-                const hotelAgent = this.agents.get(result.targetHotelId);
-                
-                if (hotelAgent) {
-                    console.log(`[${taskId}] Found hotel agent at ${hotelAgent.url}`);
-                    
-                    try {
-                        const targetClient = new A2AClient(hotelAgent.url);
-                        const stream = targetClient.sendMessageStream({ message: userMessage });
+                try {
+                    const response = await fetch(gatewayUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            agentId: result.targetHotelId,
+                            message: userMessage
+                        })
+                    });
 
-                        // Forward all events from hotel agent to the event bus
-                        for await (const event of stream) {
-                            eventBus.publish(event);
-                        }
-                        
-                        console.log(`[${taskId}] Successfully completed routing to hotel agent`);
-                        return;
-                    } catch (routingError) {
-                        console.error(`[${taskId}] Error routing to hotel agent:`, routingError);
-                        result.message = `I tried to connect you with ${result.targetHotelName}, but the agent is currently unavailable. Please try again later.`;
-                        result.metadata = {
-                            ...result.metadata,
-                            intent: 'routing failed',
-                            requiresRouting: false
-                        };
+                    if (!response.ok || !response.body) {
+                        throw new Error(`API Gateway returned ${response.status}`);
                     }
-                } else {
-                    console.log(`[${taskId}] Hotel agent ${result.targetHotelId} not found in registry`);
-                    result.message = `The agent for ${result.targetHotelName} is not currently available. Please try again later or search for other hotels.`;
+
+                    // Manually parse the Server-Sent Event (SSE) stream
+                    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+                    let buffer = '';
+
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+
+                        buffer += value;
+                        // SSE messages are separated by \n\n
+                        let lines = buffer.split('\n\n');
+
+                        // Process all complete messages, keep the last partial one
+                        for (let i = 0; i < lines.length - 1; i++) {
+                            const line = lines[i];
+                            if (line && line.startsWith('data: ')) {
+                                const data = line.substring(6); // Get JSON string
+                                try {
+                                    const event = JSON.parse(data);
+                                    eventBus.publish(event); // Publish to original caller
+                                } catch (e) {
+                                    console.error(`[${taskId}] Failed to parse SSE event:`, data);
+                                }
+                            }
+                        }
+                        buffer = lines[lines.length - 1] || ''; // Keep remainder
+                    }
+                    
+                    console.log(`[${taskId}] Successfully completed routing via API Gateway`);
+                    return; // Exit here - routing is complete
+                    
+                } catch (routingError: any) {
+                    console.error(`[${taskId}] Error routing via API Gateway:`, routingError);
+                    result.message = `I tried to connect you with ${result.targetHotelName}, but the routing service is unavailable. Please try again later.`;
                     result.metadata = {
                         ...result.metadata,
-                        intent: 'agent not available',
+                        intent: 'routing failed',
                         requiresRouting: false
                     };
+                    // Fall through to send a normal 'completed' response below
                 }
             }
 
-            // Send the unified response as JSON
+            // Send the unified response as JSON (for non-routed or failed routing cases)
             const successUpdate: TaskStatusUpdateEvent = {
                 kind: 'status-update',
                 taskId,
@@ -554,7 +540,7 @@ export class RoutingAgentExecutor {
                         messageId: uuidv4(),
                         parts: [{ 
                             kind: 'text', 
-                            text: JSON.stringify(result, null, 2)
+                            text: JSON.stringify(result.message, null, 2)
                         }],
                         taskId,
                         contextId,

@@ -1,77 +1,18 @@
 import express from 'express';
 import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
-
-// --- Imports needed for the A2A Client ---
-import { A2AClient } from '@a2a-js/sdk/client';
+import { EventEmitter } from 'events';
+import { TravelAgent, createTravelAgent, type TravelAgentConfig } from './hotel_specific.js';
 import type { 
     Message, 
-    MessageSendParams, 
     TaskStatusUpdateEvent 
 } from '@a2a-js/sdk';
-
-
-async function sendMessageAndGetFinalResponse(
-    agentUrl: string,
-    messageText: string,
-    currentContextId?: string 
-): Promise<any> {
-    const client = new A2AClient(agentUrl);
-    const messageId = uuidv4();
-
-    const messagePayload: Message = {
-        messageId: messageId,
-        kind: "message",
-        role: "user",
-        parts: [
-            {
-                kind: "text",
-                text: messageText,
-            },
-        ],
-        ...(currentContextId && { contextId: currentContextId }),
-    };
-
-    const params: MessageSendParams = {
-        message: messagePayload,
-    };
-
-    console.log(`[Router] Sending message to ${agentUrl}...`);
-
-    try {
-        const stream = client.sendMessageStream(params);
-
-        for await (const event of stream) {
-            if (event.kind === "status-update") {
-                const statusUpdate = event as TaskStatusUpdateEvent;
-
-                if (statusUpdate.final) {
-                    const finalMessage = statusUpdate.status.message;
-                    
-                    if (finalMessage && finalMessage.parts && finalMessage.parts[0]?.kind === 'text') {
-                        const rawText = finalMessage.parts[0].text;
-                        
-                        try {
-                            const finalResponse = JSON.parse(rawText);
-                            console.log(`[Router] Successfully received final JSON from ${agentUrl}.`);
-                            return finalResponse; 
-                        } catch (parseError) {
-                            console.warn(`[Router] Final message from ${agentUrl} was not JSON. Returning raw text.`);
-                            return { error: "Received stream, but final message text was not valid JSON.", rawText };
-                        }
-                    }
-                }
-            }
-        }
-        
-        throw new Error("Stream closed without sending a final successful status update.");
-
-    } catch (error) {
-        console.error(`[Router] A2A communication failed with ${agentUrl}:`, (error as Error).message);
-        throw error;
-    }
-}
-
+import type { RequestContext, ExecutionEventBus } from '@a2a-js/sdk/server';
+import { Pinecone } from '@pinecone-database/pinecone';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
+import { Document } from '@langchain/core/documents';
+import { PineconeStore } from '@langchain/pinecone';
 
 const app = express();
 app.use(express.json()); 
@@ -90,45 +31,121 @@ app.use(
     })
 );
 
+const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
+const pineconeIndex = pinecone.index(process.env.PINECONE_INDEX_NAME!);
+
+const embeddings = new GoogleGenerativeAIEmbeddings({
+            model: 'text-embedding-004',
+            apiKey: process.env.GOOGLE_API_KEY!,
+        });
+
+// --- Agent Registry with Configs ---
 interface AgentRegistryEntry {
     id: string; 
     name: string;
-    agentBaseUrl: string;
+    config: TravelAgentConfig;
+    instance: TravelAgent | undefined; // Cache the agent instance
 }
 
 const agentRegistry: AgentRegistryEntry[] = [
     {
-        id: 'hotel-1',
-        name: 'Grand Hotel Agent',
-        agentBaseUrl: 'http://localhost:41241',
+        id: 'hotel-0',
+        name: 'Seaside Inn',
+        instance: undefined,
+        config: {
+            id: 'hotel-0-agent',
+            name: 'Seaside Inn',
+            basicInfo: 'Specializes in information and bookings for the Seaside Inn Hotel.',
+            hederaAccountId: process.env.HEDERA_ACCOUNT_ID!,
+            hederaPrivateKey: process.env.HEDERA_PRIVATE_KEY!,
+            bookingTopicId: process.env.BOOKING_TOPIC_ID!,
+            escrowContractId: process.env.ESCROW_CONTRACT_ID!,
+            hotelId: 1,
+            agentBaseUrl: 'http://localhost:41241',
+        }
     },
+    // Add more hotels here as needed
     // {
-    //     id: 'hotel-2',
-    //     name: 'Luxury Inn Agent',
-    //     agentBaseUrl: 'http://localhost:41242',
+    //     id: 'hotel-1',
+    //     name: 'Mountain Lodge',
+    //     config: {
+    //         id: 'hotel-1-agent',
+    //         name: 'Mountain Lodge',
+    //         basicInfo: 'Specializes in information and bookings for the Mountain Lodge Hotel.',
+    //         hederaAccountId: process.env.HEDERA_ACCOUNT_ID!,
+    //         hederaPrivateKey: process.env.HEDERA_PRIVATE_KEY!,
+    //         bookingTopicId: process.env.BOOKING_TOPIC_ID!,
+    //         escrowContractId: process.env.ESCROW_CONTRACT_ID!,
+    //         hotelId: 2,
+    //         agentBaseUrl: 'http://localhost:41242',
+    //     }
     // },
-    // {
-    //     id: 'hotel-3',
-    //     name: 'Beach Resort Agent',
-    //     agentBaseUrl: 'http://localhost:41243',
-    // }
 ];
 
 const agentCache = new Map<string, AgentRegistryEntry>(
     agentRegistry.map(agent => [agent.id, agent])
 );
 
+// --- Initialize all agents on startup ---
+async function initializeAgents() {
+    console.log('Initializing hotel agents...');
+    for (const entry of agentRegistry) {
+        try {
+            console.log(`- Initializing ${entry.name}...`);
+            entry.instance = await createTravelAgent(entry.config);
+            console.log(`  ✓ ${entry.name} ready`);
+        } catch (error) {
+            console.error(`  ✗ Failed to initialize ${entry.name}:`, error);
+        }
+    }
+    console.log('All agents initialized.\n');
+}
 
-// --- /registry ENDPOINT (Unchanged) ---
-// This GET endpoint is for discovery and is not part of the invocation change.
-app.get('/registry', async (req, res) =>{
+// --- Simple EventBus implementation ---
+class SimpleEventBus extends EventEmitter implements ExecutionEventBus {
+    publish(event: TaskStatusUpdateEvent): void {
+        this.emit('event', event);
+    }
+    
+    finished(): Promise<void> {
+        return Promise.resolve();
+    }
+}
+
+
+
+async function storeHotelInfoInPinecone(hotelId: number, hotelInfo: string){
+    try {
+        const splitter = new RecursiveCharacterTextSplitter({
+            chunkSize: 1024,
+            chunkOverlap: 256,
+        });
+        const chunks = await splitter.splitText(hotelInfo);
+        const documents = chunks.map((chunk) => new Document({ pageContent: chunk, metadata: { hotelId } }));
+
+        const namespace = `hotel-${hotelId}`;
+        await PineconeStore.fromDocuments(documents, embeddings,{
+            pineconeIndex: pineconeIndex as any,
+            namespace,
+        });
+
+        console.log(`Hotel info embedded and stored for hotel-${hotelId}`);
+    } catch(error){
+        console.error(`Failed to store hotel info for hotel-${hotelId}:`, error);
+        throw error;
+    }
+}
+
+
+// --- /registry ENDPOINT ---
+app.get('/registry', async (req, res) => {
     const { hotelId } = req.query; 
     
     let agents = agentRegistry.map(agent => ({
         id: agent.id,
         name: agent.name,
-        url: agent.agentBaseUrl,
-        cardUrl: `${agent.agentBaseUrl}/.well-known/agent-card.json`
+        url: agent.config.agentBaseUrl,
+        cardUrl: `${agent.config.agentBaseUrl}/.well-known/agent-card.json`
     }));
 
     if (hotelId && typeof hotelId === 'string') {
@@ -139,138 +156,140 @@ app.get('/registry', async (req, res) =>{
     }
 });
 
-
+// --- Main endpoint: Direct agent execution ---
 app.post('/', async (req, res) => {
-    // 1. Get ALL data from the body
-    const { agentId, intent, input } = req.body;
+    const { agentId, message } = req.body as { agentId: string; message: Message };
 
-    // 2. Validate top-level fields
-    if (!agentId || !intent || !input) {
-        return res.status(400).json({ 
-            error: "Missing required fields in body: agentId, intent, and input are all required." 
+    if (!agentId || !message) {
+        return res.status(400).json({ error: "Missing 'agentId' or 'message' in body" });
+    }
+
+    // 1. Find agent in registry
+    const agentEntry = agentCache.get(agentId);
+    if (!agentEntry || !agentEntry.instance) {
+        return res.status(404).json({ error: `Hotel agent '${agentId}' not found or not initialized` });
+    }
+
+    console.log(`[Router] Executing ${agentEntry.name} directly...`);
+
+    // 2. Set headers for Server-Sent Events (SSE)
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    try {
+        // 3. Create EventBus to capture events
+        const eventBus = new SimpleEventBus();
+        
+        // 4. Listen to events and stream them to the client
+        eventBus.on('event', (event: TaskStatusUpdateEvent) => {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+            
+            // Close connection after final event
+            if (event.final) {
+                console.log(`[Router] Final event sent for ${agentId}`);
+                res.end();
+            }
         });
-    }
 
-    // 3. Find agent URL from registry
-    const agentInfo = agentCache.get(agentId);
-    if(!agentInfo){
-        return res.status(404).json({ "error": `Hotel agent '${agentId}' not found in registry` });
-    }
-
-    // 4. Build the prompt (This logic is identical to your old server)
-    let prompt = '';
-    let requiredFields = [];
-    let responseKey = 'response';
-
-    try{
-        switch(intent){
-            case "booking_confirmation":
-                requiredFields = ['HotelName', 'hotelId', 'userId', 'checkInDate', 'checkOutDate', 'value'];
-                if (requiredFields.some(field => input[field] === undefined)) {
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
+        // 5. Create RequestContext from the incoming message
+        const taskId = message.taskId || uuidv4();
+        const contextId = message.contextId || uuidv4();
+        
+        const requestContext: RequestContext = {
+            taskId: taskId,
+            contextId: contextId,
+            userMessage: message,
+            ...(message.taskId && {
+                task: {
+                    kind: 'task',
+                    id: taskId,
+                    contextId: contextId,
+                    status: {
+                        state: 'working',
+                        timestamp: new Date().toISOString()
+                    }
                 }
-                
-                prompt = `Book ${input.HotelName} (hotelId: ${input.hotelId}) for user: ${input.userId} on ${input.checkInDate} to ${input.checkOutDate} for ${input.value} tinybars.`;
-                responseKey = 'transactionBytes';
-                break;
+            })
+        };
 
-            case "hotel_specific":
-                requiredFields = ['question', 'hotelId'];
-                if (requiredFields.some(field => input[field] === undefined)) {
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
+        // 6. Execute the agent directly
+        await agentEntry.instance.execute(requestContext, eventBus);
 
-                prompt = `Answer this question about hotel ID ${input.hotelId}: "${input.question}"`;
-                responseKey = 'answer';
-                break;
-
-            case "check_in":
-                requiredFields = ['bookingId'];
-                if(requiredFields.some(field => input[field] === undefined)){
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-
-                prompt = `Check in to booking ID ${input.bookingId}.`;
-                responseKey = 'transactionBytes';
-                break;
-
-            case "cancel_booking":
-                requiredFields = ['bookingId'];
-                if (requiredFields.some(field => input[field] === undefined)) {
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-                
-                prompt = `Cancel booking ID ${input.bookingId}.`;
-                responseKey = 'transactionBytes';
-                break;
-
-            case "get_booking_details":
-                requiredFields = ['bookingId'];
-                if(requiredFields.some(field => input[field] === undefined)){
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-
-                prompt = `Get booking details for booking ID ${input.bookingId}.`;
-                responseKey = 'details';
-                break;
-
-            case "get_user_bookings":
-                requiredFields = ['userAddress'];
-                if(requiredFields.some(field => input[field] === undefined)){
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-
-                prompt = `Get all bookings for user ${input.userAddress}.`;
-                responseKey = 'bookings';
-                break;
-
-            case "get_hotel_bookings":
-                requiredFields = ['hotelId'];
-                if(requiredFields.some(field => input[field] === undefined)){
-                    return res.status(400).json({ error: `Missing required fields for ${intent}: ${requiredFields.join(', ')}` });
-                }
-
-                prompt = `Get all bookings for hotel ID ${input.hotelId}.`;
-                responseKey = 'bookings';
-                break;
-
-            default:
-                return res.status(400).json({ error: `Unsupported intent: ${intent}` });
-        }
-
-        // 5. Call the external A2A agent
-        const agentResponse = await sendMessageAndGetFinalResponse(
-            agentInfo.agentBaseUrl,
-            prompt
-        );
-
-        // 6. Translate the A2A response back to the old API format
-        let responseValue: string;
-
-        if (agentResponse.error && agentResponse.rawText) {
-            responseValue = agentResponse.rawText;
-        } else if (agentResponse.message) {
-            responseValue = agentResponse.message;
-        } else if (agentResponse.error) {
-            throw new Error(agentResponse.error);
-        } else {
-            throw new Error('Unknown response format from A2A agent');
-        }
-
-        // 7. Send the response in the *old* format
-        res.json({ [responseKey]: responseValue });
-
-    }catch(error){
-        console.error(`Error invoking agent ${agentId} for intent ${intent}:`, error);
-        const errorMessage = (error instanceof Error) ? error.message : "Agent invocation failed";
-        res.status(500).json({ error: errorMessage, details: error });
+    } catch (error) {
+        console.error(`[Router] Error executing ${agentId}:`, error);
+        
+        // Send error event
+        const errorEvent: TaskStatusUpdateEvent = {
+            kind: 'status-update',
+            taskId: message.taskId || uuidv4(),
+            contextId: message.contextId || uuidv4(),
+            status: {
+                state: 'failed',
+                message: {
+                    kind: 'message',
+                    role: 'agent',
+                    messageId: uuidv4(),
+                    parts: [{ kind: 'text', text: `Error: ${(error as Error).message}` }],
+                    taskId: message.taskId || uuidv4(),
+                    contextId: message.contextId || uuidv4(),
+                },
+                timestamp: new Date().toISOString(),
+            },
+            final: true
+        };
+        
+        res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+        res.end();
     }
 });
 
+app.post("/register-hotel", async (req, res) => {
+    const { agentConfig, hotelInfo } = req.body as { 
+        agentConfig: TravelAgentConfig; 
+        hotelInfo: string;
+    };
+
+    if(!agentConfig || !hotelInfo){
+        return res.status(400).json({ error: "Missing 'agentConfig' or 'hotelInfo' in body" });
+    }
+
+    const { hotelId, name } = agentConfig;
+
+    try{
+        await storeHotelInfoInPinecone(hotelId, hotelInfo);
+
+        const newEntry: AgentRegistryEntry ={
+            id: `hotel-${hotelId}`,
+            name,
+            config: agentConfig,
+            instance: await createTravelAgent(agentConfig),
+        };
+        agentRegistry.push(newEntry);
+        agentCache.set(newEntry.id, newEntry);
+
+        console.log(`New hotel agent registered: ${name} (${newEntry.id})`);
+        res.json({ 
+            success: true, 
+            agentId: newEntry.id, 
+            message: `Hotel '${name}' registered and agent initialized.` 
+        });
+    } catch(error){
+        console.error(`[Router] Error registering hotel:`, error);
+        res.status(500).json({ error: `Registration failed: ${(error as Error).message}` });
+    }
+});
+
+// --- Start server ---
 app.listen(7000, async () => {
     console.log('Hotel Agents *Router* Server on port 7000');
-    console.log('Registered agents:');
+    console.log('Initializing agents...\n');
+    
+    await initializeAgents();
+    
+    console.log('Router ready. Registered agents:');
     agentRegistry.forEach(agent => {
-        console.log(`- ${agent.name} (${agent.id}) -> ${agent.agentBaseUrl}`);
+        console.log(`- ${agent.name} (${agent.id})`);
     });
 });

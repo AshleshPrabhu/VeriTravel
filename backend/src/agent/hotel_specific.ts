@@ -12,7 +12,6 @@ import type { ExecutionEventBus } from '@a2a-js/sdk/server';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { A2AExpressApp } from "@a2a-js/sdk/server/express";
-
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { createToolCallingAgent, AgentExecutor } from 'langchain/agents';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
@@ -27,8 +26,6 @@ import { HederaLangchainToolkit, coreConsensusPlugin } from 'hedera-agent-kit';
 import { Pinecone as PineconeClient } from '@pinecone-database/pinecone';
 
 
-// --- Configuration and Tool Functions (Unchanged) ---
-
 export interface TravelAgentConfig{
     id: string;
     name: string;
@@ -37,14 +34,11 @@ export interface TravelAgentConfig{
     hederaPrivateKey: string;
     bookingTopicId: string;
     escrowContractId: string;
-    hotelId: number; // Added specific hotel ID for this agent
+    hotelId: number;
     agentBaseUrl:string;
 }
 
-// NOTE: llm must be passed to createHotelInfoTool since it uses it directly.
 function createHotelInfoTool(llm: ChatGoogleGenerativeAI, config: TravelAgentConfig, pinecone: PineconeClient){
-    // ... (Your createHotelInfoTool implementation remains the same) ...
-    // Note: The LLM for RAG is already configured inside this function.
     return new DynamicStructuredTool({
         name: 'get_hotel_info',
         description: 'Retrieve hotel details (e.g., pool hours, checkout time). Input: question string and hotelId.',
@@ -100,7 +94,6 @@ function createHotelInfoTool(llm: ChatGoogleGenerativeAI, config: TravelAgentCon
 }
 
 function createContractCallTool(client: Client, contractId: ContractId){
-    // ... (Your createContractCallTool implementation remains the same) ...
     return new DynamicStructuredTool({
         name: 'call_contract_function',
         description: `Call functions on BookingEscrow contract. Supported functions:
@@ -149,7 +142,7 @@ function createContractCallTool(client: Client, contractId: ContractId){
                     }
 
                     const txBytes = await tx.toBytes();
-                    return `Transaction ready for signing. Base64 bytes: ${Buffer.from(txBytes).toString('base64')}`;
+                    return `Transaction ready for user signing. Base64 bytes: ${Buffer.from(txBytes).toString('base64')}. Please sign with your Hedera account (as payer, add payment amount) and send back the signed base64 bytes.`;
                 }else if (['getBooking', 'getUserBookings', 'getHotelBookings'].includes(functionName)){
                     const query = new ContractCallQuery()
                         .setContractId(contractId)
@@ -178,8 +171,63 @@ function createContractCallTool(client: Client, contractId: ContractId){
     });
 }
 
+function createSubmitSignedTxTool(client: Client, contractId: ContractId, bookingTopicId: string, hcsTool: StructuredToolInterface | undefined){
+    return new DynamicStructuredTool({
+        name: 'submit_signed_booking_tx',
+        description: `Submit a user-signed Hedera transaction for booking confirmation. 
+        This broadcasts the signed transaction to the network, transferring funds from the USER'S Hedera account to the escrow contract.
+        Use this when the user provides signed base64 bytes (after signing the unsigned tx from call_contract_function).
+        The transaction must be a signed ContractExecuteTransaction for 'bookHotel' with the user as payer.`,
+        schema: z.object({
+            signedBytes: z.string().describe('Base64-encoded signed transaction bytes from the user'),
+            hotelId: z.number().describe('The hotel ID (for logging)'),
+            checkInDate: z.number().describe('Check-in date as Unix timestamp (for logging)'),
+            checkOutDate: z.number().describe('Check-out date as Unix timestamp (for logging)'),
+            amountInTinybars: z.number().optional().describe('Expected HBAR amount in tinybars (for logging)'),
+        }),
+        func: async ({ signedBytes, hotelId, checkInDate, checkOutDate, amountInTinybars }) =>{
+            try{
+                if(!signedBytes || !hotelId || !checkInDate || !checkOutDate){
+                    throw new Error('Missing required fields: signedBytes, hotelId, checkInDate, checkOutDate');
+                }
+                const signedTx = ContractExecuteTransaction.fromBytes(Buffer.from(signedBytes, 'base64'));
+
+                const submittedTx = await signedTx.execute(client);
+                const receipt = await submittedTx.getReceipt(client);
+
+                if(receipt.status.toString() !== 'SUCCESS'){
+                    throw new Error(`Transaction submission failed: ${receipt.status}`);
+                }
+
+                const txId = submittedTx.transactionId.toString();
+
+                if(hcsTool){
+                    const bookingMessage = JSON.stringify({
+                        bookingId: txId,
+                        hotelId,
+                        checkInDate,
+                        checkOutDate,
+                        amountInTinybars,
+                        status: 'confirmed',
+                        payer: receipt.accountId?.toString() ?? 'unknown',
+                        timestamp: Date.now(),
+                    });
+                    await hcsTool.invoke({
+                        topicId: bookingTopicId,
+                        message: bookingMessage,
+                    });
+                }
+
+                return `Booking confirmed successfully from your account! Transaction ID: ${txId}. Funds (${amountInTinybars ? `${amountInTinybars} tinybars` : 'payment'}) transferred to escrow.`;
+            }catch(error){
+                console.error('Error in submit_signed_booking_tx:', error);
+                throw new Error(`Booking submission failed: ${error}`);
+            }
+        },
+    });
+}
+
 function createHCSMessageTool(bookingTopicId: string, hcsTool: StructuredToolInterface){
-    // ... (Your createHCSMessageTool implementation remains the same) ...
     return new DynamicStructuredTool({
         name: 'submit_hcs_message',
         description: `Log a booking attestation to Hedera HCS topic ${bookingTopicId}. Provide the message content as a JSON string containing booking details.`,
@@ -214,9 +262,6 @@ export class TravelAgent{
     private agentExecutor: AgentExecutor;
     private client: Client;
     private config: TravelAgentConfig;
-    
-    // NOTE: bookingTopicId and escrowContractId are initialized for context,
-    // but the actual Hedera SDK objects are not directly needed here.
     private bookingTopicId: TopicId; 
     private escrowContractId: ContractId;
 
@@ -232,7 +277,6 @@ export class TravelAgent{
     
     async cancelTask(taskId: string): Promise<void> {
         console.log(`Cancelling task ${taskId}`);
-        // In a real scenario, you might try to stop the LLM call or transaction.
     } 
 
     public static async create(config: TravelAgentConfig): Promise<TravelAgent> {
@@ -256,14 +300,21 @@ export class TravelAgent{
             Use tools to:
             - Answer hotel questions with get_hotel_info (ALWAYS use hotelId: ${config.hotelId})
             - Log bookings to HCS with submit_hcs_message (topicId: ${config.bookingTopicId})
-            - Book/manage hotels with call_contract_function
+            - Prepare unsigned transactions with call_contract_function (for 'bookHotel', etc.)
             
-            IMPORTANT: For get_hotel_info, always pass hotelId: ${config.hotelId}
+            For booking flow:
+            1. When user wants to book, use call_contract_function with 'bookHotel' to get unsigned tx bytes.
+            2. Instruct user to sign the bytes with THEIR Hedera wallet (as payer, including the payment amount) and send back the base64 signed bytes.
+            3. When user provides signed bytes (e.g., message contains "signed bytes: [base64]"), parse the base64 string.
+            4. Extract booking details from context or user message (hotelId: ${config.hotelId}, checkInDate, checkOutDate, amountInTinybars).
+            5. Use submit_signed_booking_tx with the parsed signedBytes and details to broadcast the tx and transfer funds FROM THE USER'S ACCOUNT.
             
-            For bookings:
-            - Extract userId, checkInDate/checkOutDate (Unix timestamps), price (HBAR in tinybars)
-            - Call bookHotel with hotelId: ${config.hotelId} and price as valueInTinybars
-            - Use HITL for transactions (return transaction bytes for user approval)
+            IMPORTANT: 
+            - For get_hotel_info, always pass hotelId: ${config.hotelId}
+            - Always parse user messages for signed bytes patterns when confirming bookings (e.g., "signed bytes: [base64]").
+            - Funds are paid from the USER'S account since they sign as payer.
+            - If details are missing in confirmation, ask for them.
+            - After successful submission, the tool handles HCS logging automatically.
             
             If input is unclear or missing details, ask for clarification.
         `;
@@ -290,7 +341,8 @@ export class TravelAgent{
         console.log('Creating agent tools');
         const hotelInfoTool = createHotelInfoTool(llm, config, pinecone);
         const contractTool = createContractCallTool(client, ContractId.fromString(config.escrowContractId));
-        const allTools: StructuredToolInterface[] = [hotelInfoTool, contractTool];
+        const submitSignedTxTool = createSubmitSignedTxTool(client, ContractId.fromString(config.escrowContractId), config.bookingTopicId, originalHcsTool);
+        const allTools: StructuredToolInterface[] = [hotelInfoTool, contractTool, submitSignedTxTool];
         
         if(originalHcsTool){
             const hcsMessageTool = createHCSMessageTool(config.bookingTopicId, originalHcsTool);
@@ -309,7 +361,7 @@ export class TravelAgent{
         return new TravelAgent(config, agentExecutor, client);
     }
     
-    // **CRITICAL CHANGE: This method now implements the A2A Executor interface**
+
     public async execute(
         requestContext: RequestContext,
         eventBus: ExecutionEventBus
@@ -343,7 +395,8 @@ export class TravelAgent{
         try{
             // 2. Execute the LangChain Agent
             const result = await this.agentExecutor.invoke({ input: messageText });
-            const output = result.output;
+            // const output = result.output;
+            const output = (typeof result.output === 'string') ? result.output : JSON.stringify(result.output, null, 2);            
 
             // 3. Send COMPLETED update
             const successUpdate: TaskStatusUpdateEvent = {
@@ -409,7 +462,8 @@ export class TravelAgent{
             defaultOutputModes: ['text'],
             skills: [
                 { id: 'get_hotel_info', name: 'get_hotel_info', description: 'Answer hotel questions (amenities, policies, hours) for this specific hotel.', tags: ['rag', 'pinecone'] },
-                { id: 'book_hotel', name: 'call_contract_function', description: 'Book a room via BookingEscrow contract.', tags: ['hedera', 'booking'] },
+                { id: 'prepare_booking_tx', name: 'call_contract_function', description: 'Prepare unsigned tx for booking (user signs to pay from their account).', tags: ['hedera', 'booking'] },
+                { id: 'submit_signed_tx', name: 'submit_signed_booking_tx', description: 'Broadcast user-signed tx to confirm booking and transfer funds from user.', tags: ['hedera', 'signature', 'payment'] },
                 { id: 'check_in_hotel', name: 'call_contract_function', description: 'Check in to a booking.', tags: ['hedera'] },
                 { id: 'cancel_booking', name: 'call_contract_function', description: 'Cancel a booking.', tags: ['hedera'] },
             ],
@@ -418,47 +472,49 @@ export class TravelAgent{
 }
 
 
-// --- Server Setup (The desired main function) ---
-
-async function main() {
-    // NOTE: This is a placeholder config. You must define this with real ENV variables.
-    const PORT = process.env.AGENT_PORT || 41241;
-    const config: TravelAgentConfig = {
-        id: 'hotel-1-agent', // Unique ID for this specific hotel agent
-        name: 'Grand Hotel Agent',
-        basicInfo: 'Specializes in information and bookings for the Grand Hotel.',
-        hederaAccountId: process.env.HEDERA_ACCOUNT_ID!,
-        hederaPrivateKey: process.env.HEDERA_PRIVATE_KEY!,
-        bookingTopicId: process.env.BOOKING_TOPIC_ID!,
-        escrowContractId: process.env.ESCROW_CONTRACT_ID!,
-        hotelId: 1, // The specific hotel this agent serves
-        agentBaseUrl: `http://localhost:${PORT}`,
-    };
-
-    const agent = await TravelAgent.create(config);
-    const agentCard = agent.getAgentCard(); // Get the card from the instance
-
-    const taskStore = new InMemoryTaskStore();
-    
-    // The agent instance now correctly implements the AgentExecutor interface required here
-    const requestHandler = new DefaultRequestHandler(
-        agentCard,
-        taskStore,
-        agent // Pass the TravelAgent instance
-    );
-
-    const routerApp = express();
-    const app = new A2AExpressApp(requestHandler);
-    const expressApp = app.setupRoutes(routerApp, '');
-
-    // Set a different default port than the RoutingAgent (41240)
-    // const PORT = process.env.AGENT_PORT || 41241; 
-    expressApp.listen(PORT, () => {
-        console.log(`[${agentCard.name}] Server started on http://localhost:${PORT}`);
-        console.log(`[${agentCard.name}] Agent Card: http://localhost:${PORT}/.well-known/agent-card.json`);
-    });
+export async function createTravelAgent(config: TravelAgentConfig): Promise<TravelAgent> {
+    return await TravelAgent.create(config);
 }
 
-main().catch((err) => {
-    console.error("Error starting TravelAgent:", err);
-});
+//-----Main function incase you want to run a seperate server for this agent-----------
+// async function main() {
+//     const PORT = process.env.AGENT_PORT || 41241;
+//     const config: TravelAgentConfig = {
+//         id: 'hotel-0-agent', // Unique ID for this specific hotel agent
+//         name: 'Seaside Inn',
+//         basicInfo: 'Specializes in information and bookings for the Seaside Inn Hotel.',
+//         hederaAccountId: process.env.HEDERA_ACCOUNT_ID!,
+//         hederaPrivateKey: process.env.HEDERA_PRIVATE_KEY!,
+//         bookingTopicId: process.env.BOOKING_TOPIC_ID!,
+//         escrowContractId: process.env.ESCROW_CONTRACT_ID!,
+//         hotelId: 1, // The specific hotel this agent serves
+//         agentBaseUrl: `http://localhost:${PORT}`,
+//     };
+
+//     const agent = await TravelAgent.create(config);
+//     const agentCard = agent.getAgentCard(); // Get the card from the instance
+
+//     const taskStore = new InMemoryTaskStore();
+    
+//     // The agent instance now correctly implements the AgentExecutor interface required here
+//     const requestHandler = new DefaultRequestHandler(
+//         agentCard,
+//         taskStore,
+//         agent // Pass the TravelAgent instance
+//     );
+
+//     const routerApp = express();
+//     const app = new A2AExpressApp(requestHandler);
+//     const expressApp = app.setupRoutes(routerApp, '');
+
+//     // Set a different default port than the RoutingAgent (41240)
+//     // const PORT = process.env.AGENT_PORT || 41241; 
+//     expressApp.listen(PORT, () => {
+//         console.log(`[${agentCard.name}] Server started on http://localhost:${PORT}`);
+//         console.log(`[${agentCard.name}] Agent Card: http://localhost:${PORT}/.well-known/agent-card.json`);
+//     });
+// }
+
+// main().catch((err) => {
+//     console.error("Error starting TravelAgent:", err);
+// });
