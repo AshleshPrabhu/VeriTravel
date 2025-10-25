@@ -26,8 +26,6 @@ import { HederaLangchainToolkit, coreConsensusPlugin } from 'hedera-agent-kit';
 import { Pinecone as PineconeClient } from '@pinecone-database/pinecone';
 
 
-// --- Configuration and Tool Functions (Unchanged) ---
-
 export interface TravelAgentConfig{
     id: string;
     name: string;
@@ -36,7 +34,7 @@ export interface TravelAgentConfig{
     hederaPrivateKey: string;
     bookingTopicId: string;
     escrowContractId: string;
-    hotelId: number; // Added specific hotel ID for this agent
+    hotelId: number;
     agentBaseUrl:string;
 }
 
@@ -144,7 +142,7 @@ function createContractCallTool(client: Client, contractId: ContractId){
                     }
 
                     const txBytes = await tx.toBytes();
-                    return `Transaction ready for signing. Base64 bytes: ${Buffer.from(txBytes).toString('base64')}`;
+                    return `Transaction ready for user signing. Base64 bytes: ${Buffer.from(txBytes).toString('base64')}. Please sign with your Hedera account (as payer, add payment amount) and send back the signed base64 bytes.`;
                 }else if (['getBooking', 'getUserBookings', 'getHotelBookings'].includes(functionName)){
                     const query = new ContractCallQuery()
                         .setContractId(contractId)
@@ -170,6 +168,62 @@ function createContractCallTool(client: Client, contractId: ContractId){
                 return `Error: ${error}`;
             }
         }
+    });
+}
+
+function createSubmitSignedTxTool(client: Client, contractId: ContractId, bookingTopicId: string, hcsTool: StructuredToolInterface | undefined){
+    return new DynamicStructuredTool({
+        name: 'submit_signed_booking_tx',
+        description: `Submit a user-signed Hedera transaction for booking confirmation. 
+        This broadcasts the signed transaction to the network, transferring funds from the USER'S Hedera account to the escrow contract.
+        Use this when the user provides signed base64 bytes (after signing the unsigned tx from call_contract_function).
+        The transaction must be a signed ContractExecuteTransaction for 'bookHotel' with the user as payer.`,
+        schema: z.object({
+            signedBytes: z.string().describe('Base64-encoded signed transaction bytes from the user'),
+            hotelId: z.number().describe('The hotel ID (for logging)'),
+            checkInDate: z.number().describe('Check-in date as Unix timestamp (for logging)'),
+            checkOutDate: z.number().describe('Check-out date as Unix timestamp (for logging)'),
+            amountInTinybars: z.number().optional().describe('Expected HBAR amount in tinybars (for logging)'),
+        }),
+        func: async ({ signedBytes, hotelId, checkInDate, checkOutDate, amountInTinybars }) =>{
+            try{
+                if(!signedBytes || !hotelId || !checkInDate || !checkOutDate){
+                    throw new Error('Missing required fields: signedBytes, hotelId, checkInDate, checkOutDate');
+                }
+                const signedTx = ContractExecuteTransaction.fromBytes(Buffer.from(signedBytes, 'base64'));
+
+                const submittedTx = await signedTx.execute(client);
+                const receipt = await submittedTx.getReceipt(client);
+
+                if(receipt.status.toString() !== 'SUCCESS'){
+                    throw new Error(`Transaction submission failed: ${receipt.status}`);
+                }
+
+                const txId = submittedTx.transactionId.toString();
+
+                if(hcsTool){
+                    const bookingMessage = JSON.stringify({
+                        bookingId: txId,
+                        hotelId,
+                        checkInDate,
+                        checkOutDate,
+                        amountInTinybars,
+                        status: 'confirmed',
+                        payer: receipt.accountId?.toString() ?? 'unknown',
+                        timestamp: Date.now(),
+                    });
+                    await hcsTool.invoke({
+                        topicId: bookingTopicId,
+                        message: bookingMessage,
+                    });
+                }
+
+                return `Booking confirmed successfully from your account! Transaction ID: ${txId}. Funds (${amountInTinybars ? `${amountInTinybars} tinybars` : 'payment'}) transferred to escrow.`;
+            }catch(error){
+                console.error('Error in submit_signed_booking_tx:', error);
+                throw new Error(`Booking submission failed: ${error}`);
+            }
+        },
     });
 }
 
@@ -208,9 +262,6 @@ export class TravelAgent{
     private agentExecutor: AgentExecutor;
     private client: Client;
     private config: TravelAgentConfig;
-    
-    // NOTE: bookingTopicId and escrowContractId are initialized for context,
-    // but the actual Hedera SDK objects are not directly needed here.
     private bookingTopicId: TopicId; 
     private escrowContractId: ContractId;
 
@@ -249,14 +300,21 @@ export class TravelAgent{
             Use tools to:
             - Answer hotel questions with get_hotel_info (ALWAYS use hotelId: ${config.hotelId})
             - Log bookings to HCS with submit_hcs_message (topicId: ${config.bookingTopicId})
-            - Book/manage hotels with call_contract_function
+            - Prepare unsigned transactions with call_contract_function (for 'bookHotel', etc.)
             
-            IMPORTANT: For get_hotel_info, always pass hotelId: ${config.hotelId}
+            For booking flow:
+            1. When user wants to book, use call_contract_function with 'bookHotel' to get unsigned tx bytes.
+            2. Instruct user to sign the bytes with THEIR Hedera wallet (as payer, including the payment amount) and send back the base64 signed bytes.
+            3. When user provides signed bytes (e.g., message contains "signed bytes: [base64]"), parse the base64 string.
+            4. Extract booking details from context or user message (hotelId: ${config.hotelId}, checkInDate, checkOutDate, amountInTinybars).
+            5. Use submit_signed_booking_tx with the parsed signedBytes and details to broadcast the tx and transfer funds FROM THE USER'S ACCOUNT.
             
-            For bookings:
-            - Extract userId, checkInDate/checkOutDate (Unix timestamps), price (HBAR in tinybars)
-            - Call bookHotel with hotelId: ${config.hotelId} and price as valueInTinybars
-            - Use HITL for transactions (return transaction bytes for user approval)
+            IMPORTANT: 
+            - For get_hotel_info, always pass hotelId: ${config.hotelId}
+            - Always parse user messages for signed bytes patterns when confirming bookings (e.g., "signed bytes: [base64]").
+            - Funds are paid from the USER'S account since they sign as payer.
+            - If details are missing in confirmation, ask for them.
+            - After successful submission, the tool handles HCS logging automatically.
             
             If input is unclear or missing details, ask for clarification.
         `;
@@ -283,7 +341,8 @@ export class TravelAgent{
         console.log('Creating agent tools');
         const hotelInfoTool = createHotelInfoTool(llm, config, pinecone);
         const contractTool = createContractCallTool(client, ContractId.fromString(config.escrowContractId));
-        const allTools: StructuredToolInterface[] = [hotelInfoTool, contractTool];
+        const submitSignedTxTool = createSubmitSignedTxTool(client, ContractId.fromString(config.escrowContractId), config.bookingTopicId, originalHcsTool);
+        const allTools: StructuredToolInterface[] = [hotelInfoTool, contractTool, submitSignedTxTool];
         
         if(originalHcsTool){
             const hcsMessageTool = createHCSMessageTool(config.bookingTopicId, originalHcsTool);
@@ -403,7 +462,8 @@ export class TravelAgent{
             defaultOutputModes: ['text'],
             skills: [
                 { id: 'get_hotel_info', name: 'get_hotel_info', description: 'Answer hotel questions (amenities, policies, hours) for this specific hotel.', tags: ['rag', 'pinecone'] },
-                { id: 'book_hotel', name: 'call_contract_function', description: 'Book a room via BookingEscrow contract.', tags: ['hedera', 'booking'] },
+                { id: 'prepare_booking_tx', name: 'call_contract_function', description: 'Prepare unsigned tx for booking (user signs to pay from their account).', tags: ['hedera', 'booking'] },
+                { id: 'submit_signed_tx', name: 'submit_signed_booking_tx', description: 'Broadcast user-signed tx to confirm booking and transfer funds from user.', tags: ['hedera', 'signature', 'payment'] },
                 { id: 'check_in_hotel', name: 'call_contract_function', description: 'Check in to a booking.', tags: ['hedera'] },
                 { id: 'cancel_booking', name: 'call_contract_function', description: 'Cancel a booking.', tags: ['hedera'] },
             ],

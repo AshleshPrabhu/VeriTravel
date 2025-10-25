@@ -8,6 +8,11 @@ import type {
     TaskStatusUpdateEvent 
 } from '@a2a-js/sdk';
 import type { RequestContext, ExecutionEventBus } from '@a2a-js/sdk/server';
+import { Pinecone } from '@pinecone-database/pinecone';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
+import { Document } from '@langchain/core/documents';
+import { PineconeStore } from '@langchain/pinecone';
 
 const app = express();
 app.use(express.json()); 
@@ -25,6 +30,14 @@ app.use(
         credentials: true,
     })
 );
+
+const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
+const pineconeIndex = pinecone.index(process.env.PINECONE_INDEX_NAME!);
+
+const embeddings = new GoogleGenerativeAIEmbeddings({
+            model: 'text-embedding-004',
+            apiKey: process.env.GOOGLE_API_KEY!,
+        });
 
 // --- Agent Registry with Configs ---
 interface AgentRegistryEntry {
@@ -98,6 +111,31 @@ class SimpleEventBus extends EventEmitter implements ExecutionEventBus {
         return Promise.resolve();
     }
 }
+
+
+
+async function storeHotelInfoInPinecone(hotelId: number, hotelInfo: string){
+    try {
+        const splitter = new RecursiveCharacterTextSplitter({
+            chunkSize: 1024,
+            chunkOverlap: 256,
+        });
+        const chunks = await splitter.splitText(hotelInfo);
+        const documents = chunks.map((chunk) => new Document({ pageContent: chunk, metadata: { hotelId } }));
+
+        const namespace = `hotel-${hotelId}`;
+        await PineconeStore.fromDocuments(documents, embeddings,{
+            pineconeIndex: pineconeIndex as any,
+            namespace,
+        });
+
+        console.log(`Hotel info embedded and stored for hotel-${hotelId}`);
+    } catch(error){
+        console.error(`Failed to store hotel info for hotel-${hotelId}:`, error);
+        throw error;
+    }
+}
+
 
 // --- /registry ENDPOINT ---
 app.get('/registry', async (req, res) => {
@@ -204,6 +242,42 @@ app.post('/', async (req, res) => {
         
         res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
         res.end();
+    }
+});
+
+app.post("/register-hotel", async (req, res) => {
+    const { agentConfig, hotelInfo } = req.body as { 
+        agentConfig: TravelAgentConfig; 
+        hotelInfo: string;
+    };
+
+    if(!agentConfig || !hotelInfo){
+        return res.status(400).json({ error: "Missing 'agentConfig' or 'hotelInfo' in body" });
+    }
+
+    const { hotelId, name } = agentConfig;
+
+    try{
+        await storeHotelInfoInPinecone(hotelId, hotelInfo);
+
+        const newEntry: AgentRegistryEntry ={
+            id: `hotel-${hotelId}`,
+            name,
+            config: agentConfig,
+            instance: await createTravelAgent(agentConfig),
+        };
+        agentRegistry.push(newEntry);
+        agentCache.set(newEntry.id, newEntry);
+
+        console.log(`New hotel agent registered: ${name} (${newEntry.id})`);
+        res.json({ 
+            success: true, 
+            agentId: newEntry.id, 
+            message: `Hotel '${name}' registered and agent initialized.` 
+        });
+    } catch(error){
+        console.error(`[Router] Error registering hotel:`, error);
+        res.status(500).json({ error: `Registration failed: ${(error as Error).message}` });
     }
 });
 
