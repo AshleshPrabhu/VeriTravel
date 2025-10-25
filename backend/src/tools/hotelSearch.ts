@@ -18,82 +18,6 @@ interface Hotel {
     tags: string[];
 }
 
-// Enhanced mock data with better location coverage
-const MOCK_HOTELS: Hotel[] = [
-    {
-        id: "0",
-        name: "Seaside Inn",
-        location: "goa",
-        stars: 4,
-        rating: 4.5,
-        pricePerNight: "1500000000000000000",
-        tags: ["beach", "family", "pool", "sea"]
-    },
-    {
-        id: "1",
-        name: "Mountain View Resort",
-        location: "manali",
-        stars: 5,
-        rating: 4.8,
-        pricePerNight: "2500000000000000000",
-        tags: ["luxury", "mountain", "spa"]
-    },
-    {
-        id: "2",
-        name: "City Center Hotel",
-        location: "bengaluru",
-        stars: 3,
-        rating: 4.2,
-        pricePerNight: "800000000000000000",
-        tags: ["business", "city", "pool"]
-    },
-    {
-        id: "3",
-        name: "Beach Paradise Resort",
-        location: "goa",
-        stars: 5,
-        rating: 4.9,
-        pricePerNight: "3000000000000000000",
-        tags: ["beach", "luxury", "pool", "sea", "spa"]
-    },
-    {
-        id: "4",
-        name: "Heritage Palace",
-        location: "jaipur",
-        stars: 5,
-        rating: 4.7,
-        pricePerNight: "2200000000000000000",
-        tags: ["luxury", "heritage", "cultural"]
-    },
-    {
-        id: "5",
-        name: "Budget Inn",
-        location: "delhi",
-        stars: 2,
-        rating: 3.8,
-        pricePerNight: "500000000000000000",
-        tags: ["budget", "city"]
-    },
-    {
-        id: "6",
-        name: "Karnataka Grand Hotel",
-        location: "bengaluru",
-        stars: 4,
-        rating: 4.6,
-        pricePerNight: "1800000000000000000",
-        tags: ["business", "pool", "spa", "luxury"]
-    },
-    {
-        id: "7",
-        name: "Mysore Palace Hotel",
-        location: "mysore",
-        stars: 5,
-        rating: 4.8,
-        pricePerNight: "2000000000000000000",
-        tags: ["heritage", "pool", "luxury", "cultural"]
-    }
-];
-
 // Location mappings for broader searches
 const LOCATION_MAPPINGS: { [key: string]: string[] } = {
     'karnataka': ['bengaluru', 'mysore', 'mangalore', 'hubli'],
@@ -105,16 +29,17 @@ const LOCATION_MAPPINGS: { [key: string]: string[] } = {
 
 export class HotelSearchTool {
     private readonly endpoint: string;
-    private useMockData: boolean = true; // Start with mock data due to SSL issues
     private httpsAgent: https.Agent;
+    private connectionTested: boolean = false;
 
     constructor() {
         this.endpoint = 'https://indexer.dev.hyperindex.xyz/5eccd6f/v1/graphql';
         
-        // Create HTTPS agent that bypasses SSL verification
-        // WARNING: Only use this in development!
+        // Create HTTPS agent with SSL bypass for development
         this.httpsAgent = new https.Agent({
-            rejectUnauthorized: false // Bypass SSL certificate verification
+            rejectUnauthorized: false,
+            keepAlive: true,
+            timeout: 10000
         });
     }
 
@@ -125,12 +50,10 @@ export class HotelSearchTool {
             const normalized = loc.toLowerCase().trim();
             expanded.add(normalized);
             
-            // Add mapped cities if this is a state/region
             if (LOCATION_MAPPINGS[normalized]) {
                 LOCATION_MAPPINGS[normalized].forEach(city => expanded.add(city));
             }
             
-            // Check reverse mapping - if someone searches for a city, include its state
             Object.entries(LOCATION_MAPPINGS).forEach(([state, cities]) => {
                 if (cities.includes(normalized)) {
                     expanded.add(state);
@@ -141,53 +64,57 @@ export class HotelSearchTool {
         return Array.from(expanded);
     }
 
-    private filterMockData(params: HotelQueryParams): Hotel[] {
-        console.log('🎭 Filtering mock data with params:', params);
-        let results = [...MOCK_HOTELS];
-
-        if (params.maxPrice) {
-            const maxPrice = BigInt(params.maxPrice);
-            results = results.filter(h => BigInt(h.pricePerNight) <= maxPrice);
+    /**
+     * Test the database connection on first use
+     */
+    private async testConnection(): Promise<boolean> {
+        if (this.connectionTested) {
+            return true;
         }
 
-        if (params.locations && params.locations.length > 0) {
-            const expandedLocations = this.expandLocations(params.locations);
-            console.log(`📍 Expanded locations from ${params.locations} to:`, expandedLocations);
-            
-            results = results.filter(h => 
-                expandedLocations.some(loc => 
-                    h.location.toLowerCase().includes(loc) || 
-                    loc.includes(h.location.toLowerCase())
-                )
-            );
-        }
+        console.log('🔌 Testing Envio database connection...');
+        
+        try {
+            const testQuery = {
+                query: `
+                    query TestConnection {
+                        Hotel(limit: 1) {
+                            id
+                        }
+                    }
+                `
+            };
 
-        if (params.tags && params.tags.length > 0) {
-            results = results.filter(h => 
-                params.tags!.some(tag => 
-                    h.tags.some(hotelTag => 
-                        hotelTag.toLowerCase().includes(tag.toLowerCase()) ||
-                        tag.toLowerCase().includes(hotelTag.toLowerCase())
-                    )
-                )
-            );
-        }
+            const response = await axios.post(this.endpoint, testQuery, {
+                timeout: 5000,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                httpsAgent: this.httpsAgent,
+                validateStatus: (status) => status < 500
+            });
 
-        if (params.minStars) {
-            results = results.filter(h => h.stars >= params.minStars!);
+            if (response.data && !response.data.errors) {
+                console.log('✅ Envio database connection successful!');
+                this.connectionTested = true;
+                return true;
+            } else {
+                console.error('⚠️ Database returned errors:', response.data.errors);
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ Database connection test failed:', error);
+            return false;
         }
-
-        console.log(`✨ Filtered to ${results.length} hotels`);
-        return results;
     }
 
     async searchHotels(params: HotelQueryParams): Promise<Hotel[]> {
         console.log('🔍 Search params received:', JSON.stringify(params, null, 2));
         
-        // If already using mock data, skip API call
-        if (this.useMockData) {
-            console.log('🎭 Using mock data (database unavailable)');
-            return this.filterMockData(params);
+        // Test connection first
+        const isConnected = await this.testConnection();
+        if (!isConnected) {
+            throw new Error('Unable to connect to Envio database. Please check your endpoint and network connection.');
         }
 
         const whereClause: any = {};
@@ -200,6 +127,7 @@ export class HotelSearchTool {
         // Handle locations with expansion
         if (params.locations && params.locations.length > 0) {
             const expandedLocations = this.expandLocations(params.locations);
+            console.log(`📍 Expanded locations:`, expandedLocations);
             whereClause.location = { _in: expandedLocations };
         }
         
@@ -240,7 +168,7 @@ export class HotelSearchTool {
 
         try {
             const response = await axios.post(this.endpoint, query, {
-                timeout: 10000,
+                timeout: 15000,
                 headers: {
                     'Content-Type': 'application/json',
                 },
@@ -249,66 +177,45 @@ export class HotelSearchTool {
             });
             
             console.log('📦 API Response status:', response.status);
-            console.log('📦 API Response data:', JSON.stringify(response.data, null, 2));
             
             // Check for GraphQL errors
             if (response.data.errors) {
-                console.error('⚠️  GraphQL errors:', response.data.errors);
+                console.error('⚠️ GraphQL errors:', response.data.errors);
                 throw new Error(`GraphQL error: ${response.data.errors[0]?.message || 'Unknown error'}`);
             }
 
             if (!response.data || !response.data.data) {
-                console.error('⚠️  Unexpected response structure:', response.data);
+                console.error('⚠️ Unexpected response structure:', response.data);
                 throw new Error('Invalid response structure from API');
             }
             
             const hotels = response.data.data.Hotel || [];
-            console.log(`✅ Found ${hotels.length} hotels from database`);
+            console.log(`✅ Found ${hotels.length} hotels from Envio database`);
             
-            // If database is empty with no filters, switch to mock data
-            if (hotels.length === 0 && Object.keys(whereClause).length === 0) {
-                console.log('⚠️  Database returned no hotels, switching to mock data');
-                this.useMockData = true;
-                return this.filterMockData(params);
-            }
-            
-            // Success - we can use the database
-            this.useMockData = false;
             return hotels;
             
         } catch (error) {
             console.error('❌ Error fetching from database:', error);
             
             if (axios.isAxiosError(error)) {
-                if (error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
-                    console.error('🔒 SSL Certificate verification failed');
-                    console.error('💡 Tip: The Envio endpoint has SSL issues. Using mock data instead.');
+                if (error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || error.code === 'CERT_HAS_EXPIRED') {
+                    throw new Error('SSL certificate issue with Envio endpoint. Please contact Envio support or use a different endpoint.');
                 } else if (error.response) {
-                    console.error('Response status:', error.response.status);
-                    console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+                    throw new Error(`API error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
                 } else if (error.request) {
-                    console.error('No response received from server');
+                    throw new Error('No response from Envio server. Please check your network connection.');
                 } else {
-                    console.error('Error setting up request:', error.message);
+                    throw new Error(`Request error: ${error.message}`);
                 }
             }
             
-            // Fallback to mock data
-            console.log('🎭 Falling back to mock data');
-            this.useMockData = true;
-            return this.filterMockData(params);
+            throw error;
         }
     }
 
     async getHotelById(id: string): Promise<Hotel | null> {
         console.log('🔍 Looking up hotel by ID:', id);
         
-        // Check mock data first if we're in mock mode
-        if (this.useMockData) {
-            console.log('🎭 Using mock data for hotel lookup');
-            return MOCK_HOTELS.find(h => h.id === id) || null;
-        }
-
         const query = {
             query: `
                 query GetHotel($id: String!) {
@@ -335,7 +242,7 @@ export class HotelSearchTool {
                 httpsAgent: this.httpsAgent
             });
             
-            console.log('📦 GetHotel response:', JSON.stringify(response.data, null, 2));
+            console.log('📦 GetHotel response status:', response.status);
             
             if (response.data.errors) {
                 throw new Error(`GraphQL error: ${response.data.errors[0]?.message || 'Unknown error'}`);
@@ -350,11 +257,7 @@ export class HotelSearchTool {
             
         } catch (error) {
             console.error('❌ Error fetching hotel by ID:', error);
-            
-            // Fallback to mock data
-            console.log('🎭 Falling back to mock data for hotel lookup');
-            this.useMockData = true;
-            return MOCK_HOTELS.find(h => h.id === id) || null;
+            throw error;
         }
     }
 }
