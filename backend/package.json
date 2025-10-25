@@ -33,6 +33,7 @@
     "express": "^5.1.0",
     "hedera-agent-kit": "^3.4.0",
     "langchain": "^0.3.36",
+    "node-fetch": "^3.3.2",
     "socket.io": "^4.8.1",
     "typescript": "^5.9.3",
     "zod": "^3.25.76"
