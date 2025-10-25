@@ -1,10 +1,6 @@
 import {
   Branch,
   BranchMessages,
-  BranchNext,
-  BranchPage,
-  BranchPrevious,
-  BranchSelector,
 } from "@/components/ai-elements/branch";
 import {
   Conversation,
@@ -13,20 +9,8 @@ import {
 } from "@/components/ai-elements/conversation";
 import {
   PromptInput,
-  PromptInputActionAddAttachments,
-  PromptInputActionMenu,
-  PromptInputActionMenuContent,
-  PromptInputActionMenuTrigger,
-  PromptInputAttachment,
-  PromptInputAttachments,
   PromptInputBody,
-  PromptInputButton,
   type PromptInputMessage,
-  PromptInputModelSelect,
-  PromptInputModelSelectContent,
-  PromptInputModelSelectItem,
-  PromptInputModelSelectTrigger,
-  PromptInputModelSelectValue,
   PromptInputSpeechButton,
   PromptInputSubmit,
   PromptInputTextarea,
@@ -38,48 +22,31 @@ import {
   MessageAvatar,
   MessageContent,
 } from "@/components/ai-elements/message";
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
-} from "@/components/ai-elements/reasoning";
+
 import { Response } from "@/components/ai-elements/response";
-import {
-  Source,
-  Sources,
-  SourcesContent,
-  SourcesTrigger,
-} from "@/components/ai-elements/sources";
 import {
   Suggestion,
   Suggestions,
 } from "@/components/ai-elements/suggestion";
-import { GlobeIcon } from "lucide-react";
+import { GlobeIcon, Hotel, MapPin, Star } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
-import type { ToolUIPart } from "ai";
 import { nanoid } from "nanoid";
+import agentService from "@/utils/agentService";
+import type { UnifiedAgentResponse } from "@/utils/agentService";
 
-// 🧠 Types
+// Types
 type MessageType = {
   key: string;
   from: "user" | "assistant";
   sources?: { href: string; title: string }[];
-  versions: { id: string; content: string }[];
+  versions: { id: string; content: string; agentResponse?: UnifiedAgentResponse }[];
   reasoning?: { content: string; duration: number };
-  tools?: {
-    name: string;
-    description: string;
-    status: ToolUIPart["state"];
-    parameters: Record<string, unknown>;
-    result: string | undefined;
-    error: string | undefined;
-  }[];
   avatar: string;
   name: string;
 };
 
-// 💬 Initial messages
+// Initial messages
 const initialMessages: MessageType[] = [
   {
     key: nanoid(),
@@ -87,168 +54,226 @@ const initialMessages: MessageType[] = [
     versions: [
       {
         id: nanoid(),
-        content: "Hey traveler! 👋 Ready to explore some AI insights?",
+        content: "Welcome to VeriTravel! 🏨 I can help you search for hotels, answer questions about specific properties, or provide travel information. What would you like to know?",
       },
     ],
-    avatar: "https://github.com/openai.png",
-    name: "OpenAI",
+    avatar: "https://github.com/veritravel.png",
+    name: "VeriTravel Agent",
   },
 ];
 
-// 🤖 Models + mock
-const models = [
-  { id: "gpt-4", name: "GPT-4" },
-  { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
-  { id: "claude-2", name: "Claude 2" },
-  { id: "mistral-7b", name: "Mistral 7B" },
-];
-
 const suggestions = [
-  "Explain React hooks",
-  "What is TailwindCSS?",
-  "How to optimize React performance?",
-  "Show an example of useEffect",
+  "Show me hotels in Goa",
+  "Find 5-star hotels under 2 ETH",
+  "Tell me about Seaside Inn",
+  "What's the best time to visit Bengaluru?",
 ];
 
-const mockResponses = [
-  "That's a great question! Let me break it down for you...",
-  "Good choice — here's how it works step by step...",
-  "This concept is key in modern frontend dev — let’s explore it.",
-];
+// Hotel Card Component
+const HotelCard = ({ hotel }: { hotel: any }) => (
+  <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 mb-3">
+    <div className="flex items-start justify-between mb-2">
+      <div className="flex-1">
+        <h3 className="font-semibold text-lg text-gray-900">{hotel.name}</h3>
+        <div className="flex items-center gap-1 text-sm text-gray-600 mt-1">
+          <MapPin size={14} />
+          <span>{hotel.location}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        {Array.from({ length: hotel.stars }).map((_, i) => (
+          <Star key={i} size={14} fill="#FFD700" stroke="#FFD700" />
+        ))}
+      </div>
+    </div>
+    
+    <div className="flex items-center justify-between mt-3">
+      <div className="text-sm">
+        <span className="text-gray-600">Price: </span>
+        <span className="font-semibold text-gray-900">
+          {(parseFloat(hotel.pricePerNight) / 1e18).toFixed(4)} ETH/night
+        </span>
+      </div>
+      {hotel.rating && (
+        <div className="text-sm">
+          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded">
+            ⭐ {hotel.rating}
+          </span>
+        </div>
+      )}
+    </div>
+    
+    {hotel.tags && hotel.tags.length > 0 && (
+      <div className="flex flex-wrap gap-1 mt-3">
+        {hotel.tags.map((tag: string) => (
+          <span
+            key={tag}
+            className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded"
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
+    )}
+  </div>
+);
 
-// ✨ Component
-const ChatArea = () => {
-  const [model, setModel] = useState(models[0].id);
+// Agent Response Renderer
+const AgentResponseRenderer = ({ response }: { response: UnifiedAgentResponse }) => {
+  if (response.responseType === 'hotel_search' && response.hotels && response.hotels.length > 0) {
+    return (
+      <div>
+        <p className="mb-4 text-gray-700">{response.message}</p>
+        <div className="grid gap-3">
+          {response.hotels.map((hotel) => (
+            <HotelCard key={hotel.id} hotel={hotel} />
+          ))}
+        </div>
+        {response.metadata?.suggestedActions && (
+          <div className="mt-4 text-sm text-gray-600">
+            <p className="font-medium mb-2">You can:</p>
+            <ul className="list-disc list-inside">
+              {response.metadata.suggestedActions.map((action, idx) => (
+                <li key={idx}>{action}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return <p className="text-gray-700 whitespace-pre-line">{response.message}</p>;
+};
+
+// Main Component
+const IntegratedChatArea = () => {
   const [text, setText] = useState("");
-  const [useWebSearch, setUseWebSearch] = useState(false);
   const [status, setStatus] = useState<
     "submitted" | "streaming" | "ready" | "error"
   >("ready");
   const [messages, setMessages] = useState<MessageType[]>(initialMessages);
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
-    null
-  );
-  const shouldCancelRef = useRef(false);
-  const addMessageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [currentStreamingId, setCurrentStreamingId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const stop = useCallback(() => {
-    shouldCancelRef.current = true;
-    if (addMessageTimeoutRef.current) {
-      clearTimeout(addMessageTimeoutRef.current);
-      addMessageTimeoutRef.current = null;
-    }
     setStatus("ready");
-    setStreamingMessageId(null);
+    setCurrentStreamingId(null);
   }, []);
 
-  const streamResponse = useCallback(async (messageId: string, content: string) => {
-    setStatus("streaming");
-    setStreamingMessageId(messageId);
-    shouldCancelRef.current = false;
+  const addUserMessage = useCallback((content: string) => {
+    const userMessage: MessageType = {
+      key: nanoid(),
+      from: "user",
+      versions: [{ id: nanoid(), content }],
+      avatar: "https://github.com/haydenbleasel.png",
+      name: "You",
+    };
 
-    const words = content.split(" ");
-    let currentContent = "";
-
-    for (let i = 0; i < words.length; i++) {
-      if (shouldCancelRef.current) {
-        setStatus("ready");
-        setStreamingMessageId(null);
-        return;
-      }
-
-      currentContent += (i > 0 ? " " : "") + words[i];
-
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.versions.some((v) => v.id === messageId)
-            ? {
-                ...msg,
-                versions: msg.versions.map((v) =>
-                  v.id === messageId ? { ...v, content: currentContent } : v
-                ),
-              }
-            : msg
-        )
-      );
-
-      await new Promise((resolve) => setTimeout(resolve, Math.random() * 50 + 20));
-    }
-
-    setStatus("ready");
-    setStreamingMessageId(null);
+    setMessages((prev) => [...prev, userMessage]);
+    return userMessage.key;
   }, []);
 
-  const addUserMessage = useCallback(
-    (content: string) => {
-      const userMessage: MessageType = {
-        key: `user-${Date.now()}`,
-        from: "user",
-        versions: [{ id: `user-${Date.now()}`, content }],
-        avatar: "https://github.com/haydenbleasel.png",
-        name: "You",
-      };
-
-      setMessages((prev) => [...prev, userMessage]);
-
-      addMessageTimeoutRef.current = setTimeout(() => {
-        const assistantMessageId = `assistant-${Date.now()}`;
-        const randomResponse =
-          mockResponses[Math.floor(Math.random() * mockResponses.length)];
-
-        const assistantMessage: MessageType = {
-          key: assistantMessageId,
-          from: "assistant",
-          versions: [{ id: assistantMessageId, content: "" }],
-          avatar: "https://github.com/openai.png",
-          name: "Assistant",
-        };
-
-        setMessages((prev) => [...prev, assistantMessage]);
-        streamResponse(assistantMessageId, randomResponse);
-        addMessageTimeoutRef.current = null;
-      }, 600);
-    },
-    [streamResponse]
-  );
-
-  const handleSubmit = (message: PromptInputMessage) => {
-    if (status === "streaming" || status === "submitted") {
+  const handleSubmit = async (message: PromptInputMessage) => {
+    if (status === "streaming") {
       stop();
       return;
     }
 
     const hasText = Boolean(message.text);
-    const hasAttachments = Boolean(message.files?.length);
-    if (!(hasText || hasAttachments)) return;
+    if (!hasText) return;
 
     setStatus("submitted");
-
-    if (message.files?.length) {
-      toast.success("Files attached", {
-        description: `${message.files.length} file(s) attached.`,
-      });
-    }
-
-    addUserMessage(message.text || "Sent with attachments");
+    
+    // Add user message
+    addUserMessage(message.text!);
     setText("");
+
+    // Create placeholder for assistant response
+    const assistantMessageId = nanoid();
+    const assistantMessage: MessageType = {
+      key: nanoid(),
+      from: "assistant",
+      versions: [{ 
+        id: assistantMessageId, 
+        content: "Processing..." 
+      }],
+      avatar: "https://github.com/veritravel.png",
+      name: "VeriTravel Agent",
+    };
+
+    setMessages((prev) => [...prev, assistantMessage]);
+    setCurrentStreamingId(assistantMessageId);
+    setStatus("streaming");
+
+    // Send to agent
+    try {
+      await agentService.sendMessage(
+        message.text ?? "",
+        (agentResponse, isFinal) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.versions.some((v) => v.id === assistantMessageId)
+                ? {
+                    ...msg,
+                    versions: msg.versions.map((v) =>
+                      v.id === assistantMessageId
+                        ? { 
+                            ...v, 
+                            content: agentResponse.message,
+                            agentResponse 
+                          }
+                        : v
+                    ),
+                  }
+                : msg
+            )
+          );
+
+          if (isFinal) {
+            setStatus("ready");
+            setCurrentStreamingId(null);
+          }
+        },
+        (error) => {
+          console.error("Agent error:", error);
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.versions.some((v) => v.id === assistantMessageId)
+                ? {
+                    ...msg,
+                    versions: msg.versions.map((v) =>
+                      v.id === assistantMessageId
+                        ? { 
+                            ...v, 
+                            content: `Error: ${error}` 
+                          }
+                        : v
+                    ),
+                  }
+                : msg
+            )
+          );
+          setStatus("error");
+          setCurrentStreamingId(null);
+          toast.error("Failed to get response from agent");
+        }
+      );
+    } catch (error) {
+      console.error("Submit error:", error);
+      setStatus("error");
+      setCurrentStreamingId(null);
+    }
   };
 
   const handleSuggestionClick = (suggestion: string) => {
-    setStatus("submitted");
-    addUserMessage(suggestion);
+    setText(suggestion);
+    textareaRef.current?.focus();
   };
 
   return (
-    <div
-      className="
-        relative flex flex-col
-        h-full min-h-0 w-full
-        overflow-hidden bg-[#E7E3D5]
-        text-black
-      "
-    >
-      {/* 💬 Scrollable Conversation Area */}
+    <div className="relative flex flex-col h-full min-h-0 w-full overflow-hidden bg-[#E7E3D5] text-black">
+      {/* Scrollable Conversation Area */}
       <div className="flex-1 overflow-y-auto px-4 pt-6 pb-24">
         <Conversation>
           <ConversationContent>
@@ -261,43 +286,18 @@ const ChatArea = () => {
                       key={`${message.key}-${version.id}`}
                     >
                       <div>
-                        {message.sources?.length && (
-                          <Sources>
-                            <SourcesTrigger count={message.sources.length} />
-                            <SourcesContent>
-                              {message.sources.map((source) => (
-                                <Source
-                                  href={source.href}
-                                  key={source.href}
-                                  title={source.title}
-                                />
-                              ))}
-                            </SourcesContent>
-                          </Sources>
-                        )}
-                        {message.reasoning && (
-                          <Reasoning duration={message.reasoning.duration}>
-                            <ReasoningTrigger />
-                            <ReasoningContent>
-                              {message.reasoning.content}
-                            </ReasoningContent>
-                          </Reasoning>
-                        )}
                         <MessageContent>
-                          <Response>{version.content}</Response>
+                          {version.agentResponse ? (
+                            <AgentResponseRenderer response={version.agentResponse} />
+                          ) : (
+                            <Response>{version.content}</Response>
+                          )}
                         </MessageContent>
                       </div>
                       <MessageAvatar name={message.name} src={message.avatar} />
                     </Message>
                   ))}
                 </BranchMessages>
-                {versions.length > 1 && (
-                  <BranchSelector from={message.from}>
-                    <BranchPrevious />
-                    <BranchPage />
-                    <BranchNext />
-                  </BranchSelector>
-                )}
               </Branch>
             ))}
           </ConversationContent>
@@ -305,7 +305,7 @@ const ChatArea = () => {
         </Conversation>
       </div>
 
-      {/* 🧠 Suggestions + Input (fixed bottom) */}
+      {/* Suggestions + Input (fixed bottom) */}
       <div className="shrink-0 bg-[#E7E3D5] border-t border-gray-400/20">
         <Suggestions className="px-4 pt-3 pb-1 overflow-x-auto flex-nowrap">
           {suggestions.map((suggestion) => (
@@ -318,53 +318,29 @@ const ChatArea = () => {
         </Suggestions>
 
         <div className="w-full px-4 pb-4">
-          <PromptInput className="bg-[#FDFCF5]/75 rounded-2xl" globalDrop multiple onSubmit={handleSubmit}>
-            <PromptInputBody >
-              <PromptInputAttachments>
-                {(attachment) => <PromptInputAttachment data={attachment} />}
-              </PromptInputAttachments>
+          <PromptInput 
+            className="bg-[#FDFCF5]/75 rounded-2xl" 
+            onSubmit={handleSubmit}
+          >
+            <PromptInputBody>
               <PromptInputTextarea
                 onChange={(event) => setText(event.target.value)}
                 ref={textareaRef}
                 value={text}
                 className="bg-[#FDFCF5]/75"
+                placeholder="Ask about hotels, search, or get travel info..."
               />
             </PromptInputBody>
 
             <PromptInputFooter className="bg-[#FDFCF5]/75">
               <PromptInputTools className="bg-[#FDFCF5]/75">
-                <PromptInputActionMenu>
-                  <PromptInputActionMenuTrigger />
-                  <PromptInputActionMenuContent>
-                    <PromptInputActionAddAttachments />
-                  </PromptInputActionMenuContent>
-                </PromptInputActionMenu>
                 <PromptInputSpeechButton
                   onTranscriptionChange={setText}
                   textareaRef={textareaRef}
                 />
-                <PromptInputButton
-                  onClick={() => setUseWebSearch(!useWebSearch)}
-                  variant={useWebSearch ? "default" : "ghost"}
-                >
-                  <GlobeIcon size={16} />
-                  <span>Search</span>
-                </PromptInputButton>
-                <PromptInputModelSelect onValueChange={setModel} value={model}>
-                  <PromptInputModelSelectTrigger>
-                    <PromptInputModelSelectValue />
-                  </PromptInputModelSelectTrigger>
-                  <PromptInputModelSelectContent>
-                    {models.map((m) => (
-                      <PromptInputModelSelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </PromptInputModelSelectItem>
-                    ))}
-                  </PromptInputModelSelectContent>
-                </PromptInputModelSelect>
               </PromptInputTools>
               <PromptInputSubmit
-                disabled={(!text.trim() && !status) || status === "streaming"}
+                disabled={!text.trim() || status === "streaming"}
                 status={status}
               />
             </PromptInputFooter>
@@ -375,4 +351,4 @@ const ChatArea = () => {
   );
 };
 
-export default ChatArea;
+export default IntegratedChatArea;

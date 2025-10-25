@@ -2,6 +2,7 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import dotenv from 'dotenv';
 import path from "path";
 import { fileURLToPath } from "url";
+import cors from 'cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
@@ -78,7 +79,7 @@ export class RoutingAgentExecutor {
     public static async create(): Promise<RoutingAgentExecutor> {
         const executor = new RoutingAgentExecutor();
         await executor.initializeTools();
-        await executor.discoverAgents(); // Discover hotel agents from registry
+        await executor.discoverAgents();
         return executor;
     }
 
@@ -88,17 +89,31 @@ export class RoutingAgentExecutor {
                 name: "search_hotels",
                 description: `Search for hotels using Envio database. 
                 Input should be a natural language query (e.g., "luxury hotels in Goa under 2 ETH").
+                If the query is to show ALL hotels, pass an empty string or "all hotels".
                 The tool will automatically parse the query and search the database.`,
                 func: async (input: string) => {
                     try {
                         console.log('Search hotels tool input:', input);
-                        const params = await this.parseSearchParams(input);
-                        console.log('LLM parsed parameters:', params);
                         
-                        if (Object.keys(params).length === 0) {
-                            return JSON.stringify({ 
-                                error: "Could not understand search criteria. Please specify location, price, star rating, or amenities."
-                            });
+                        // Check for "show all" type queries
+                        const showAllPatterns = [
+                            /^(show|list|display|get|find|give|fetch)\s*(me\s*)?(all|every|available)\s*hotels?$/i,
+                            /^all\s*hotels?$/i,
+                            /^hotels?$/i
+                        ];
+                        
+                        const isShowAll = showAllPatterns.some(pattern => pattern.test(input.trim()));
+                        
+                        let params: any = {};
+                        
+                        if (!isShowAll) {
+                            // Parse specific search criteria
+                            params = await this.parseSearchParams(input);
+                            console.log('LLM parsed parameters:', params);
+                        } else {
+                            console.log('🌐 Detected "show all hotels" query - returning all hotels');
+                            // Empty params = return all hotels
+                            params = {};
                         }
 
                         const results = await this.hotelSearchTool.searchHotels(params);
@@ -106,7 +121,8 @@ export class RoutingAgentExecutor {
                         
                         return JSON.stringify({ 
                             hotels: results,
-                            searchParams: params
+                            searchParams: params,
+                            isShowAll: isShowAll
                         });
                     } catch (error) {
                         console.error('Error in search_hotels tool:', error);
@@ -141,13 +157,13 @@ export class RoutingAgentExecutor {
             RESPONSE TYPES AND WHEN TO USE THEM:
 
             1. "hotel_search" - When user wants to search/find multiple hotels
-               - User is looking for hotels with certain criteria
-               - Keywords: "show me hotels", "find hotels", "search", "hotels in [location]"
+               - User is looking for hotels with certain criteria OR wants to see all hotels
+               - Keywords: "show me hotels", "find hotels", "search", "hotels in [location]", "all hotels", "list hotels"
                - Set responseType: "hotel_search"
                - hotels: will be populated after search
                - targetHotelId: null
                - targetHotelName: null
-               Examples: "Show me hotels in Goa", "Find 5-star hotels", "Hotels under 2 ETH"
+               Examples: "Show me hotels in Goa", "Find 5-star hotels", "Hotels under 2 ETH", "Give me all hotels"
 
             2. "hotel_specific" - When user asks about ONE specific hotel by name
                - User mentions a specific hotel name and wants info about it
@@ -181,6 +197,7 @@ export class RoutingAgentExecutor {
             - Use null for fields that don't apply to the responseType
             - For hotel_search, you'll need to call search tool (handled separately)
             - For hotel_specific, extract the exact hotel name from user's message
+            - "show all hotels", "list hotels", "give me all hotels" should be hotel_search, NOT conversation
             - Be confident in your classification
         `;
     }
@@ -202,7 +219,7 @@ export class RoutingAgentExecutor {
             - Location names should be lowercase
             - Star ratings should be numbers
             - Include only mentioned parameters
-            - Infer tags from context (e.g., "beachfront" implies ["beach", "sea"])
+            - Infer tags from context (e.g., "beachfront" implies ["beach", "sea"], "swimming pool" implies ["pool"])
             - If no parameters are found, return empty object
 
             Extract parameters from this query and return ONLY a JSON object with no additional text.
@@ -237,7 +254,6 @@ export class RoutingAgentExecutor {
 
     private async discoverAgents() {
         try {
-            // Fetch all registered hotel agents from the router/registry
             const registryUrl = 'http://localhost:7000/registry';
             const response = await fetch(registryUrl);
             
@@ -251,11 +267,9 @@ export class RoutingAgentExecutor {
             if (data && data.agents && Array.isArray(data.agents)) {
                 for (const agent of data.agents) {
                     try {
-                        // Create A2A client for each hotel agent
                         const client = new A2AClient(agent.url);
                         const card = await client.getAgentCard();
                         
-                        // Store by hotel ID (e.g., "hotel-1" -> agent info)
                         this.agents.set(agent.id, { 
                             card, 
                             url: agent.url 
@@ -290,10 +304,13 @@ export class RoutingAgentExecutor {
                 
                 Determine the correct responseType:
                 - "conversation": general chat, greetings, travel info (no hotel search or specific hotel mention)
-                - "hotel_search": user wants to find/search for hotels with criteria
+                - "hotel_search": user wants to find/search for hotels (includes "show all hotels", "list hotels", "find hotels")
                 - "hotel_specific": user is asking about ONE specific hotel by name
                 - "booking_confirmation": user confirms they want to book
 
+                IMPORTANT: If the user asks for "all hotels", "show hotels", "list hotels" with no specific criteria,
+                this is STILL a hotel_search, not a conversation. Return empty search params to show all hotels.
+                
                 If responseType is "hotel_specific", extract the hotel name from the query and match it with available hotels to get the ID.
                 
                 Return ONLY valid JSON, no additional text.
@@ -345,30 +362,61 @@ export class RoutingAgentExecutor {
                         confidence: 0.9
                     };
                 } else if (parsed.hotels) {
-                    // Format the message with search results
-                    let message = `Found ${parsed.hotels.length} hotel(s) matching your criteria:\n\n`;
-                    parsed.hotels.forEach((hotel: any, idx: number) => {
-                        message += `${idx + 1}. ${hotel.name}\n`;
-                        message += `   📍 ${hotel.location}\n`;
-                        message += `   ${'⭐'.repeat(hotel.stars)}\n`;
-                        message += `   💰 ${hotel.pricePerNight} Wei/night\n`;
-                        if (hotel.tags && hotel.tags.length > 0) {
-                            message += `   ✨ ${hotel.tags.join(', ')}\n`;
-                        }
-                        message += `\n`;
-                    });
+                    const hotels = parsed.hotels;
+                    
+                    // Check if this was a "show all" query with no filters
+                    if (parsed.isShowAll || (Object.keys(parsed.searchParams).length === 0 && hotels.length > 0)) {
+                        // Format message for showing all hotels
+                        let message = `Here are all ${hotels.length} available hotels:\n\n`;
+                        hotels.forEach((hotel: any, idx: number) => {
+                            message += `${idx + 1}. ${hotel.name}\n`;
+                            message += `   📍 ${hotel.location}\n`;
+                            message += `   ${'⭐'.repeat(hotel.stars)}\n`;
+                            message += `   💰 ${hotel.pricePerNight} Wei/night\n`;
+                            if (hotel.tags && hotel.tags.length > 0) {
+                                message += `   ✨ ${hotel.tags.join(', ')}\n`;
+                            }
+                            message += `\n`;
+                        });
+                        
+                        classification.message = message;
+                        classification.hotels = hotels;
+                        classification.metadata = {
+                            searchParams: {},
+                            totalResults: hotels.length,
+                            intent: 'show all hotels',
+                            confidence: 0.95,
+                            suggestedActions: ['Ask about a specific hotel', 'Filter by location', 'Filter by price']
+                        };
+                    } else {
+                        // Format message for filtered search results
+                        let message = hotels.length > 0 
+                            ? `Found ${hotels.length} hotel(s) matching your criteria:\n\n`
+                            : `No hotels found matching your criteria. Try adjusting your search.\n\n`;
+                        
+                        hotels.forEach((hotel: any, idx: number) => {
+                            message += `${idx + 1}. ${hotel.name}\n`;
+                            message += `   📍 ${hotel.location}\n`;
+                            message += `   ${'⭐'.repeat(hotel.stars)}\n`;
+                            message += `   💰 ${hotel.pricePerNight} Wei/night\n`;
+                            if (hotel.tags && hotel.tags.length > 0) {
+                                message += `   ✨ ${hotel.tags.join(', ')}\n`;
+                            }
+                            message += `\n`;
+                        });
 
-                    classification.message = message;
-                    classification.hotels = parsed.hotels;
-                    classification.metadata = {
-                        searchParams: parsed.searchParams,
-                        totalResults: parsed.hotels.length,
-                        intent: 'hotel search',
-                        confidence: 0.95,
-                        suggestedActions: parsed.hotels.length > 0 
-                            ? ['Ask about a specific hotel', 'Refine search criteria', 'Book a room']
-                            : ['Try different search criteria', 'Browse all hotels']
-                    };
+                        classification.message = message;
+                        classification.hotels = hotels;
+                        classification.metadata = {
+                            searchParams: parsed.searchParams,
+                            totalResults: hotels.length,
+                            intent: 'hotel search',
+                            confidence: 0.95,
+                            suggestedActions: hotels.length > 0 
+                                ? ['Ask about a specific hotel', 'Refine search criteria', 'Book a room']
+                                : ['Try different search criteria', 'Browse all hotels']
+                        };
+                    }
                 }
             }
 
@@ -380,11 +428,9 @@ export class RoutingAgentExecutor {
                 );
 
                 if (matchedHotel) {
-                    // Map hotel ID from database to agent ID
-                    // Assuming hotel IDs in database match agent IDs (e.g., "0" -> "hotel-0", "1" -> "hotel-1")
                     const agentId = `hotel-${matchedHotel.id}`;
                     
-                    classification.targetHotelId = agentId; // Store agent ID for routing
+                    classification.targetHotelId = agentId;
                     classification.targetHotelName = matchedHotel.name;
                     classification.message = `I'll connect you with the ${matchedHotel.name} agent who can help you with specific information about this property.`;
                     classification.metadata = {
@@ -394,7 +440,6 @@ export class RoutingAgentExecutor {
                         suggestedActions: ['Ask about amenities', 'Check availability', 'View pricing']
                     };
                 } else {
-                    // Hotel not found, convert to conversation
                     classification.responseType = 'conversation';
                     classification.message = `I couldn't find a hotel named "${classification.targetHotelName}". Would you like me to search for similar hotels?`;
                     classification.targetHotelId = null;
@@ -419,11 +464,14 @@ export class RoutingAgentExecutor {
         requestContext: RequestContext,
         eventBus: ExecutionEventBus
     ): Promise<void> {
+        console.log('🚀 EXECUTE METHOD CALLED');
+        console.log('Request context:', JSON.stringify(requestContext, null, 2));
+    
         const userMessage = requestContext.userMessage;
         const taskId = requestContext.task?.id || uuidv4();
         const contextId = userMessage.contextId || requestContext.task?.contextId || uuidv4();
         const messageText = (userMessage?.parts && userMessage.parts[0]?.kind === 'text' && 'text' in userMessage.parts[0]) ? userMessage.parts[0].text : '';
-
+        
         console.log(`[${taskId}] Processing request: "${messageText}"`);
 
         const hotelId = requestContext.task?.metadata?.hotelId;
@@ -457,7 +505,6 @@ export class RoutingAgentExecutor {
             if (result.responseType === 'hotel_specific' && result.targetHotelId) {
                 console.log(`[${taskId}] Routing to hotel agent for ${result.targetHotelName} (${result.targetHotelId})`);
                 
-                // Look up the hotel agent by its ID (e.g., "hotel-1")
                 const hotelAgent = this.agents.get(result.targetHotelId);
                 
                 if (hotelAgent) {
@@ -473,10 +520,9 @@ export class RoutingAgentExecutor {
                         }
                         
                         console.log(`[${taskId}] Successfully completed routing to hotel agent`);
-                        return; // Exit early since hotel agent handled the request
+                        return;
                     } catch (routingError) {
                         console.error(`[${taskId}] Error routing to hotel agent:`, routingError);
-                        // Fall through to send error response
                         result.message = `I tried to connect you with ${result.targetHotelName}, but the agent is currently unavailable. Please try again later.`;
                         result.metadata = {
                             ...result.metadata,
@@ -485,7 +531,6 @@ export class RoutingAgentExecutor {
                         };
                     }
                 } else {
-                    // Hotel agent not found in registry
                     console.log(`[${taskId}] Hotel agent ${result.targetHotelId} not found in registry`);
                     result.message = `The agent for ${result.targetHotelName} is not currently available. Please try again later or search for other hotels.`;
                     result.metadata = {
@@ -509,7 +554,7 @@ export class RoutingAgentExecutor {
                         messageId: uuidv4(),
                         parts: [{ 
                             kind: 'text', 
-                            text: JSON.stringify(result, null, 2)  // Send full unified response as JSON
+                            text: JSON.stringify(result, null, 2)
                         }],
                         taskId,
                         contextId,
@@ -622,13 +667,24 @@ async function main() {
     );
 
     const routerApp = express();
+    
+    routerApp.use(cors({
+        origin: ['http://localhost:5173', 'http://localhost:3000'],
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        credentials: true
+    }));
+
+    routerApp.use(express.json());
+
     const app = new A2AExpressApp(requestHandler);
-    const expressApp = app.setupRoutes(routerApp, '');
+    app.setupRoutes(routerApp, '');
 
     const PORT = process.env.ROUTING_AGENT_PORT || 41240;
-    expressApp.listen(PORT, () => {
+    routerApp.listen(PORT, () => {
         console.log(`[RoutingAgent] Server started on http://localhost:${PORT}`);
         console.log(`[RoutingAgent] Agent Card: http://localhost:${PORT}/.well-known/agent-card.json`);
+        console.log(`[RoutingAgent] Messages endpoint: http://localhost:${PORT}/messages`);
     });
 }
 

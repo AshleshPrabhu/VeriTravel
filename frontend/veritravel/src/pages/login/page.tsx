@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { ethers } from "ethers";
+
 import AnimatedButton from "@/components/AnimatedButton/AnimatedButton"
 import { HotelDetailsDialog, type HotelDetails } from "@/components/HotelDetailsDialog"
 import { useRole } from "@/context/role-context"
@@ -12,69 +12,11 @@ export default function LoginPage() {
   const { setRole } = useRole()
   const [hotelDialogOpen, setHotelDialogOpen] = useState(false)
   const [hotelDetails, setHotelDetails] = useState<HotelDetails | null>(null)
-const getMetaMaskProvider = () => {
-  if (window.ethereum?.providers) {
-    return (window.ethereum.providers as Array<{ isMetaMask?: boolean }>).find((p) => p.isMetaMask);
-  }
-  if (window.ethereum?.isMetaMask) return window.ethereum;
-  return null;
-};
-  const handleUserLogin = useCallback(async () => {
-  try {
-    const ethereum = getMetaMaskProvider();
-    if (!ethereum) return alert("Please install or enable MetaMask");
 
-    const targetChainId = "0x128"; // Hedera Testnet
-
-    let chainId = await ethereum.request({ method: "eth_chainId" });
-    if (chainId !== targetChainId) {
-      try {
-        await ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: targetChainId }],
-        });
-      } catch (switchError) {
-        if (
-          typeof switchError === "object" &&
-          switchError !== null &&
-          "code" in switchError &&
-          (switchError as { code?: unknown }).code === 4902
-        ) {
-          await ethereum.request({
-            method: "wallet_addEthereumChain",
-            params: [
-              {
-                chainId: targetChainId,
-                chainName: "Hedera Testnet",
-                rpcUrls: ["https://testnet.hashio.io/api"],
-                nativeCurrency: {
-                  name: "HBAR",
-                  symbol: "HBAR",
-                  decimals: 18,
-                },
-                blockExplorerUrls: ["https://hashscan.io/testnet"],
-              },
-            ],
-          });
-        } else throw switchError;
-      }
-    }
-
-    const accounts = await ethereum.request({ method: "eth_requestAccounts" });
-    const provider = new ethers.BrowserProvider(ethereum);
-    const signer = await provider.getSigner();
-    const address = await signer.getAddress();
-
-    console.log("✅ Connected to MetaMask:", address);
-    setRole("user");
-    navigate("/dashboard");
-  } catch (err) {
-    console.error(err);
-    alert("Failed to connect wallet");
-  }
-}, [navigate, setRole]);
-
-
+  const handleUserLogin = useCallback(() => {
+    setRole("user")
+    navigate("/dashboard")
+  }, [navigate, setRole])
 
   const handleHotelLogin = useCallback(() => {
     setHotelDialogOpen(true)
