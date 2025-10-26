@@ -285,7 +285,7 @@ export async function registerHotelOnChain(details: HotelDetails) {
       signer
     );
 
-    const priceInWei = ethers.parseEther(details.pricePerNight);
+    const priceInWei = ethers.parseUnits(details.pricePerNight , 8);
     const stars = Math.round(parseFloat(details.stars));
     const totalRooms = parseInt(details.totalRooms);
 
@@ -634,7 +634,7 @@ export function HotelDetailsDialog({
                   htmlFor="hotel-price"
                   className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-700"
                 >
-                  Price per Night (ETH) *
+                  Price per Night (HBAR) *
                 </Label>
                 <Input
                   id="hotel-price"

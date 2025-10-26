@@ -225,6 +225,7 @@ export default function HotelDashboard({
           tags: hotelData.tags,
           images: hotelData.images || [],
         };
+        console.log("formated",formatted)
 
         const bookingData = await bookingContract.getHotelBookings(formatted.id);
 
