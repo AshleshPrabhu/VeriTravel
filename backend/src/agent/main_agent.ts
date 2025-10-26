@@ -225,9 +225,9 @@ export class RoutingAgentExecutor {
             You are a search parameter parser for a hotel booking system. Convert the user's query into structured search parameters.
 
             The available parameters are:
-            1. locations: array of strings (e.g., ["goa", "bengaluru"])
-            2. maxPrice: string (in Wei - multiply ETH by 1e18)
-            3. minStars: number (1-5)
+            1. location of the hotel: array of strings (e.g., ["goa", "bengaluru"])
+            2. maxPrice for booking the hotel: string (in Wei - multiply ETH by 1e18)
+            3. minStars the hotels must have: number (1-5)
             4. tags: array of strings (e.g., ["beach", "luxury", "family"])
 
             Common tags include: beach, family, business, luxury, pool, spa, sea, mountain, city
@@ -238,12 +238,15 @@ export class RoutingAgentExecutor {
             - Star ratings should be numbers
             - Include only mentioned parameters
             - Infer tags from context (e.g., "beachfront" implies ["beach", "sea"], "swimming pool" implies ["pool"])
-            - If no parameters are found, return empty object
+            - If MULTIPLE locations or ALL hotels are requested, return empty object {}
+            - If a SPECIFIC location is mentioned, include it in locations array
 
-            Extract parameters from this query and return ONLY a JSON object with no additional text.
+            Extract parameters from this query and return ONLY a valid JSON object with no markdown formatting, no code blocks, no additional text.
+            
             Query: "${query}"
 
-            Example output: {"locations": ["goa"], "maxPrice": "3000000000000000000", "minStars": 5, "tags": ["beach"]}
+            Return format: {"locations": ["goa"], "maxPrice": "3000000000000000000", "minStars": 5, "tags": ["beach"]}
+            Or for "all hotels" queries: {}
         `;
 
         try {
@@ -255,21 +258,34 @@ export class RoutingAgentExecutor {
             let params;
             try {
                 const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-                const cleanContent = content.replace(/```\n?/g, '').trim();
+                
+                // Remove ALL possible markdown formatting
+                const cleanContent = content
+                    .replace(/```json\n?/g, '')
+                    .replace(/```typescript\n?/g, '')
+                    .replace(/```\n?/g, '')
+                    .trim();
+                
                 params = JSON.parse(cleanContent);
+                
+                // Validate that params is an object
+                if (typeof params !== 'object' || params === null) {
+                    console.warn('LLM returned non-object, using empty params');
+                    params = {};
+                }
             } catch (e) {
                 console.error('Failed to parse LLM response as JSON:', response.content);
+                console.error('Parse error:', e);
                 params = {};
             }
 
-            console.log('LLM parsed search params:', params);
+            console.log('✅ LLM parsed search params:', params);
             return params;
         } catch (error) {
             console.error('Error in LLM parsing:', error);
             return {};
         }
     }
-
     private async processWithLLM(messageText: string): Promise<UnifiedAgentResponse> {
         try {
             // Get all available hotels for context
@@ -337,6 +353,7 @@ export class RoutingAgentExecutor {
                 };
             }
 
+            // console.log(classificationResponse)
             // If it's a hotel search, execute the search
             if (classification.responseType === 'hotel_search') {
                 const searchTool = this.tools.find(t => t.name === 'search_hotels');
