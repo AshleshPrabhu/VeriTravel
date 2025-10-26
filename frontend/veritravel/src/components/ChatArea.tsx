@@ -23,13 +23,13 @@ import {
   MessageContent,
 } from "@/components/ai-elements/message";
 import { useEffect } from "react";
-import { ethers } from "ethers";
+import { ethers, parseEther } from "ethers";
 import { Response } from "@/components/ai-elements/response";
 import {
   Suggestion,
   Suggestions,
 } from "@/components/ai-elements/suggestion";
-import { X, Hotel, MapPin, Star, Wallet, Calendar, DollarSign, AlertCircle } from "lucide-react";
+import {MapPin, Star, Wallet, Calendar, DollarSign, AlertCircle } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { nanoid } from "nanoid";
@@ -48,220 +48,218 @@ type MessageType = {
   name: string;
 };
 
+// interface PaymentModalProps {
+//   isOpen: boolean;
+//   onClose: () => void;
+//   bookingDetails: {
+//     hotelId: string;
+//     hotelName: string;
+//     checkinUnix: number;
+//     checkoutUnix: number;
+//     totalValueWei: string;
+//   };
+//   onPaymentSuccess: (txHash: string) => void;
+// }
 
+// // Payment Modal Component
+// const PaymentModal: React.FC<PaymentModalProps> = ({
+//   isOpen,
+//   onClose,
+//   bookingDetails,
+//   onPaymentSuccess,
+// }) => {
+//   const [isProcessing, setIsProcessing] = useState(false);
 
-interface PaymentModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  bookingDetails: {
-    hotelId: string;
-    hotelName: string;
-    checkinUnix: number;
-    checkoutUnix: number;
-    totalValueWei: string;
-  };
-  onPaymentSuccess: (txHash: string) => void;
-}
+//   if (!isOpen) return null;
 
-// Payment Modal Component
-const PaymentModal: React.FC<PaymentModalProps> = ({
-  isOpen,
-  onClose,
-  bookingDetails,
-  onPaymentSuccess,
-}) => {
-  const [isProcessing, setIsProcessing] = useState(false);
+//   const formatDate = (unixTimestamp: number) => {
+//     return new Date(unixTimestamp).toLocaleDateString('en-US', {
+//       weekday: 'short',
+//       year: 'numeric',
+//       month: 'short',
+//       day: 'numeric',
+//     });
+//   };
 
-  if (!isOpen) return null;
+//   const calculateNights = () => {
+//     const nights = Math.ceil(
+//       (bookingDetails.checkoutUnix - bookingDetails.checkinUnix) / (1000 * 60 * 60 * 24)
+//     );
+//     return nights;
+//   };
 
-  const formatDate = (unixTimestamp: number) => {
-    return new Date(unixTimestamp).toLocaleDateString('en-US', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
+//   const getTotalInETH = () => {
+//     return ethers.formatEther(bookingDetails.totalValueWei);
+//   };
 
-  const calculateNights = () => {
-    const nights = Math.ceil(
-      (bookingDetails.checkoutUnix - bookingDetails.checkinUnix) / (1000 * 60 * 60 * 24)
-    );
-    return nights;
-  };
+//   const handlePayment = async () => {
+//     try {
+//       setIsProcessing(true);
 
-  const getTotalInETH = () => {
-    return ethers.formatEther(bookingDetails.totalValueWei);
-  };
+//       const ethereum = window.ethereum;
+//       if (!ethereum) {
+//         toast.error('MetaMask not found. Please install MetaMask to continue.');
+//         return;
+//       }
 
-  const handlePayment = async () => {
-    try {
-      setIsProcessing(true);
+//       const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+//       const provider = new ethers.BrowserProvider(ethereum);
+//       const signer = await provider.getSigner();
 
-      const ethereum = window.ethereum;
-      if (!ethereum) {
-        toast.error('MetaMask not found. Please install MetaMask to continue.');
-        return;
-      }
+//       const bookingescrow = new ethers.Contract(
+//         bookingEscrowContract.address,
+//         bookingEscrowContract.abi,
+//         signer
+//       )
 
-      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-      const provider = new ethers.BrowserProvider(ethereum);
-      const signer = await provider.getSigner();
+//       // TODO: Replace with your actual smart contract address and method
+//       const tx = await bookingescrow.bookHotel(
+//         bookingDetails.hotelId,
+//         bookingDetails.checkinUnix,
+//         bookingDetails.checkoutUnix,
+//         { value: bookingDetails.totalValueWei }
+//       )
 
-      const bookingescrow = new ethers.Contract(
-        bookingEscrowContract.address,
-        bookingEscrowContract.abi,
-        signer
-      )
+//       toast.loading('Processing payment...', { id: 'payment' });
 
-      // TODO: Replace with your actual smart contract address and method
-      const tx = await bookingescrow.bookHotel(
-        bookingDetails.hotelId,
-        bookingDetails.checkinUnix,
-        bookingDetails.checkoutUnix,
-        { value: bookingDetails.totalValueWei }
-      )
+//       const receipt = await tx.wait();
 
-      toast.loading('Processing payment...', { id: 'payment' });
+//       if (!receipt) {
+//         toast.error('Payment failed: no receipt returned', { id: 'payment' });
+//         return;
+//       }
 
-      const receipt = await tx.wait();
+//       toast.success('Payment successful!', { id: 'payment' });
+//       onPaymentSuccess(receipt.hash);
+//       onClose();
 
-      if (!receipt) {
-        toast.error('Payment failed: no receipt returned', { id: 'payment' });
-        return;
-      }
-
-      toast.success('Payment successful!', { id: 'payment' });
-      onPaymentSuccess(receipt.hash);
-      onClose();
-
-    } catch (error: any) {
-      console.error('Payment error:', error);
+//     } catch (error: any) {
+//       console.error('Payment error:', error);
       
-      if (error.code === 4001) {
-        toast.error('Payment cancelled by user');
-      } else {
-        toast.error(`Payment failed: ${error.message}`);
-      }
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+//       if (error.code === 4001) {
+//         toast.error('Payment cancelled by user');
+//       } else {
+//         toast.error(`Payment failed: ${error.message}`);
+//       }
+//     } finally {
+//       setIsProcessing(false);
+//     }
+//   };
 
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Wallet size={24} />
-            Confirm Booking
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-white hover:bg-white/20 rounded-full p-1 transition-colors"
-            disabled={isProcessing}
-          >
-            <X size={24} />
-          </button>
-        </div>
+//   return (
+//     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+//       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+//         <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex items-center justify-between">
+//           <h2 className="text-xl font-bold text-white flex items-center gap-2">
+//             <Wallet size={24} />
+//             Confirm Booking
+//           </h2>
+//           <button
+//             onClick={onClose}
+//             className="text-white hover:bg-white/20 rounded-full p-1 transition-colors"
+//             disabled={isProcessing}
+//           >
+//             <X size={24} />
+//           </button>
+//         </div>
 
-        <div className="p-6 space-y-4">
-          <div className="bg-blue-50 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <Hotel className="text-blue-600 mt-1" size={20} />
-              <div>
-                <h3 className="font-semibold text-gray-900">
-                  {bookingDetails.hotelName}
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Hotel ID: {bookingDetails.hotelId}
-                </p>
-              </div>
-            </div>
-          </div>
+//         <div className="p-6 space-y-4">
+//           <div className="bg-blue-50 rounded-lg p-4">
+//             <div className="flex items-start gap-3">
+//               <Hotel className="text-blue-600 mt-1" size={20} />
+//               <div>
+//                 <h3 className="font-semibold text-gray-900">
+//                   {bookingDetails.hotelName}
+//                 </h3>
+//                 <p className="text-sm text-gray-600 mt-1">
+//                   Hotel ID: {bookingDetails.hotelId}
+//                 </p>
+//               </div>
+//             </div>
+//           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 text-gray-700">
-              <Calendar size={18} className="text-gray-400" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Check-in</p>
-                <p className="text-sm">{formatDate(bookingDetails.checkinUnix)}</p>
-              </div>
-            </div>
+//           <div className="space-y-3">
+//             <div className="flex items-center gap-3 text-gray-700">
+//               <Calendar size={18} className="text-gray-400" />
+//               <div className="flex-1">
+//                 <p className="text-sm font-medium">Check-in</p>
+//                 <p className="text-sm">{formatDate(bookingDetails.checkinUnix)}</p>
+//               </div>
+//             </div>
 
-            <div className="flex items-center gap-3 text-gray-700">
-              <Calendar size={18} className="text-gray-400" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Check-out</p>
-                <p className="text-sm">{formatDate(bookingDetails.checkoutUnix)}</p>
-              </div>
-            </div>
+//             <div className="flex items-center gap-3 text-gray-700">
+//               <Calendar size={18} className="text-gray-400" />
+//               <div className="flex-1">
+//                 <p className="text-sm font-medium">Check-out</p>
+//                 <p className="text-sm">{formatDate(bookingDetails.checkoutUnix)}</p>
+//               </div>
+//             </div>
 
-            <div className="border-t pt-3 mt-3">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Total Nights</span>
-                <span className="font-semibold">{calculateNights()} night(s)</span>
-              </div>
-            </div>
-          </div>
+//             <div className="border-t pt-3 mt-3">
+//               <div className="flex items-center justify-between">
+//                 <span className="text-gray-600">Total Nights</span>
+//                 <span className="font-semibold">{calculateNights()} night(s)</span>
+//               </div>
+//             </div>
+//           </div>
 
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <DollarSign className="text-green-600" size={20} />
-                <span className="font-medium text-gray-700">Total Amount</span>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-gray-900">
-                  {getTotalInETH()} ETH
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {bookingDetails.totalValueWei} Wei
-                </p>
-              </div>
-            </div>
-          </div>
+//           <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
+//             <div className="flex items-center justify-between">
+//               <div className="flex items-center gap-2">
+//                 <DollarSign className="text-green-600" size={20} />
+//                 <span className="font-medium text-gray-700">Total Amount</span>
+//               </div>
+//               <div className="text-right">
+//                 <p className="text-2xl font-bold text-gray-900">
+//                   {getTotalInETH()} ETH
+//                 </p>
+//                 <p className="text-xs text-gray-500 mt-1">
+//                   {bookingDetails.totalValueWei} Wei
+//                 </p>
+//               </div>
+//             </div>
+//           </div>
 
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-2">
-            <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={18} />
-            <p className="text-xs text-amber-800">
-              This transaction will be processed on the Hedera network. Please ensure you
-              have sufficient HBAR for gas fees.
-            </p>
-          </div>
+//           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex gap-2">
+//             <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+//             <p className="text-xs text-amber-800">
+//               This transaction will be processed on the Hedera network. Please ensure you
+//               have sufficient HBAR for gas fees.
+//             </p>
+//           </div>
 
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={onClose}
-              disabled={isProcessing}
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handlePayment}
-              disabled={isProcessing}
-              className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-            >
-              {isProcessing ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Wallet size={18} />
-                  Pay with Wallet
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+//           <div className="flex gap-3 pt-2">
+//             <button
+//               onClick={onClose}
+//               disabled={isProcessing}
+//               className="flex-1 px-4 py-3 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+//             >
+//               Cancel
+//             </button>
+//             <button
+//               onClick={handlePayment}
+//               disabled={isProcessing}
+//               className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+//             >
+//               {isProcessing ? (
+//                 <>
+//                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+//                   Processing...
+//                 </>
+//               ) : (
+//                 <>
+//                   <Wallet size={18} />
+//                   Pay with Wallet
+//                 </>
+//               )}
+//             </button>
+//           </div>
+//         </div>
+//       </div>
+//     </div>
+//   );
+// };
 
 // Initial messages
 const initialMessages: MessageType[] = [
@@ -356,7 +354,6 @@ const AgentResponseRenderer = ({
   const [walletAddress, setWalletAddress] = useState<string|null>(null);
   const [bookingContract, setBookingContract] = useState<ethers.Contract | null>(null);
 
-  
   const connectWallet = async()=>{
     try {
       const ethereum = getMetaMaskProvider();
@@ -388,7 +385,7 @@ const AgentResponseRenderer = ({
                   nativeCurrency: {
                     name: "HBAR",
                     symbol: "HBAR",
-                    decimals: 18,
+                    decimals: 8,
                   },
                   blockExplorerUrls: ["https://hashscan.io/testnet"],
                 },
@@ -417,36 +414,43 @@ const AgentResponseRenderer = ({
     } 
   }
 
-  const fn = async()=>{
-    if (response.responseType === 'booking_confirmation' && (response.metadata as any)?.bookingDetails) {
+  const fn = async () => {
+    if (response.responseType === "booking_confirmation" && (response.metadata as any)?.bookingDetails) {
       const details = (response.metadata as any)?.bookingDetails;
-      // onTriggerPayment({
-      //   hotelId: details.hotelId,
-      //   hotelName: response.targetHotelName || 'Hotel',
-      //   checkinUnix: details.checkinUnix,
-      //   checkoutUnix: details.checkoutUnix,
-      //   totalValueWei: details.totalValueWei,
-      // });
       const bookingescrow = await connectWallet();
-      console.log("Processing booking on-chain...", details , bookingescrow );
-      console.log(details.totalValueWei *( details.checkoutUnix - details.checkinUnix) /86400000 );
-      console.log({
-        hotelId: BigInt(details.hotelId[details.hotelId.length -1]),  
-        checkinUnix: (details.checkinUnix)/1000,
-        checkoutUnix: (details.checkoutUnix)/1000,
+      if (!bookingescrow) {
+        alert("Wallet not connected");
+        return;
+      }
 
-      })
-      const tx = await bookingescrow?.bookHotel(
-        BigInt(details.hotelId[details.hotelId.length -1]),
-        (details.checkinUnix)/1000,
-        (details.checkoutUnix)/1000,
-        { value: (details.totalValueWei *( details.checkoutUnix - details.checkinUnix) /86400000).toString }
-      )
-      console.log("transaction sent:", tx);
-      await tx.wait();
+      try {
+        const hotelId = BigInt(details.hotelId[details.hotelId.length - 1]);
+        const checkinUnix = Math.floor(details.checkinUnix / 1000);
+        const checkoutUnix = Math.floor(details.checkoutUnix / 1000);
+        const durationDays = Math.floor((details.checkoutUnix - details.checkinUnix) / 86400000);
+        const totalTinybars = BigInt(details.totalValueWei); // in tinybars
+        const totalHbar = Number(totalTinybars) / 1e8;
 
-    }
-  }
+        console.log("📅 Booking details:", { hotelId, checkinUnix, checkoutUnix, totalHbar });
+
+        // value in HBAR
+        const tx = await bookingescrow.bookHotel(hotelId, checkinUnix, checkoutUnix, {
+          value: parseEther(totalHbar.toString()),
+        });
+
+        // const tx = await bookingescrow.bookHotel(hotelId, checkinUnix, checkoutUnix, {
+        //   value: parseEther("1.0"),
+        // });
+
+        await tx.wait();
+        alert(`✅ Booking confirmed on-chain!`);
+
+        } catch (err) {
+          console.error("Booking failed:", err);
+          alert("Booking failed. See console for details.");
+        }
+      }
+    };
 
   useEffect(() => {
     // cast metadata to any because UnifiedAgentResponse.metadata doesn't statically include bookingDetails
@@ -461,7 +465,7 @@ const AgentResponseRenderer = ({
           🎉 Booking ready for {response.targetHotelName}!
         </p>
         <p className="text-sm text-gray-600">
-          Please review the booking details in the payment modal and confirm with your wallet.
+          Please review the booking details and confirm with your wallet.
         </p>
       </div>
     );
@@ -549,7 +553,7 @@ const IntegratedChatArea = () => {
                   nativeCurrency: {
                     name: "HBAR",
                     symbol: "HBAR",
-                    decimals: 18,
+                    decimals: 8,
                   },
                   blockExplorerUrls: ["https://hashscan.io/testnet"],
                 },
@@ -563,7 +567,9 @@ const IntegratedChatArea = () => {
       const provider = new ethers.BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
+      
       setWalletAddress(address);
+
       console.log("Wallet connected:", address);
       toast.success(`Wallet connected: ${address.slice(0, 6)}...${address.slice(-4)}`);
     } catch (error) {
@@ -607,25 +613,6 @@ const IntegratedChatArea = () => {
       isOpen: true,
       details,
     });
-  }, []);
-
-  const handlePaymentSuccess = useCallback(async (txHash: string) => {
-    toast.success(`Booking confirmed! Transaction: ${txHash.slice(0, 10)}...`);
-    
-    // Add confirmation message to chat
-    const confirmMessage: MessageType = {
-      key: nanoid(),
-      from: "assistant",
-      versions: [{
-        id: nanoid(),
-        content: `✅ Payment successful!\n\nTransaction Hash: ${txHash}\n\nYour booking is confirmed. You'll receive a confirmation email shortly with all the details.`
-      }],
-      avatar: "https://github.com/veritravel.png",
-      name: "VeriTravel Agent",
-    };
-    
-    setMessages((prev) => [...prev, confirmMessage]);
-    setPaymentModal({ isOpen: false, details: null });
   }, []);
 
   const handleSubmit = async (message: PromptInputMessage) => {
@@ -808,15 +795,6 @@ const IntegratedChatArea = () => {
           </PromptInput>
         </div>
       </div>
-
-      {paymentModal.details && (
-        <PaymentModal
-          isOpen={paymentModal.isOpen}
-          onClose={() => setPaymentModal({ isOpen: false, details: null })}
-          bookingDetails={paymentModal.details}
-          onPaymentSuccess={handlePaymentSuccess}
-        />
-      )}
     </div>
   );
 };
