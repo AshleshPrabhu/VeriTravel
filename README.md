@@ -1,248 +1,195 @@
-# VeriTravel — AI-Powered Web3 Hotel Booking & Verification Platform
+# 🏨 VeriTravel - Decentralized AI-Powered Hotel Booking
 
-<p align="center">
-  <img src="apps/landing-page/public/images/global/logo.png" alt="VeriTravel Logo" height="180">
-</p>
+<div align="center">
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs)
-![Node.js](https://img.shields.io/badge/Node.js-20-green?logo=node.js)
-![Hedera](https://img.shields.io/badge/Hedera-Agent_Kit-purple?logo=hedera)
-![Base](https://img.shields.io/badge/Base-Network-0013FF?logo=base)
-![PYUSD](https://img.shields.io/badge/PYUSD-Stablecoin-blue)
-![OpenAI](https://img.shields.io/badge/OpenAI-API-4B0082?logo=openai)
-![Status](https://img.shields.io/badge/Build-Passing-success)
-![Contributions](https://img.shields.io/badge/Contributions-Welcome-brightgreen)
-![Platform](https://img.shields.io/badge/Platform-Web3_AI-blueviolet)
+[Demo Link](https://your-demo-link.com)
+
+**Autonomous, Transparent, and Intelligent Hotel Booking — Powered by AI Agents and Web3**
+
+[![Built with](https://img.shields.io/badge/Built%20with-React%20+%20LangChain-blue)](https://reactjs.org/)
+[![Blockchain](https://img.shields.io/badge/Blockchain-Hedera%20Hashgraph-green)](https://hedera.com/)
+[![AI Layer](https://img.shields.io/badge/AI-LangChain%20+%20Pinecone-orange)](https://langchain.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+
+</div>
 
 ---
 
-## 🧭 Overview
+## 🚀 Overview
 
-**VeriTravel** is a **Web3-integrated, AI-powered hotel booking and verification platform** that uses **AI agents**, **Hedera attestations**, and **on-chain payments** to provide secure, transparent, and verifiable stays.
+**VeriTravel** is a decentralized, AI-powered hotel booking ecosystem that connects users and hotels directly through autonomous agents on the **Hedera network**. It fuses conversational AI, NFT-based booking proofs, and decentralized infrastructure to make travel transparent, verifiable, and fully autonomous.
 
-The platform leverages **OpenAI-powered conversational booking**, **Base blockchain (PYUSD)** for escrowed payments, and **Hedera Agent Kit** for check-in attestations — ensuring **trustless verification**, **proof-of-stay NFTs**, and **AI-driven personalization**.
-
-> 💡 “Where AI meets trust — every stay, verified.”
+Unlike centralized booking platforms that act as intermediaries, **VeriTravel** replaces them with on-chain logic and AI agents — enabling **trustless bookings**, **verified stays**, and **NFT-based reputation**.
 
 ---
 
-## 🧱 System Architecture Overview
+## 🌟 Key Features
 
-```mermaid
----
-config:
-  theme: neutral
-  look: handDrawn
----
-flowchart TD
-U["👤 User (Wallet + Voice UI)"] --> F["🌐 Frontend (Next.js + Chat Agent)"]
-F --> A["🤖 Main AI Agent (OpenAI)"]
-A --> B["🏨 Hotel Agents (Context-Aware)"]
-F --> C["💳 Payment Layer (PYUSD on Base)"]
-F --> H["🌿 Hedera Attestation Layer"]
-F --> S["🪶 Storage Layer (IPFS / DB)"]
-
-C -->|Transfers| E["🔒 Booking Escrow Contract"]
-E --> N["🎟️ Booking NFT + Proof-of-Stay SBT"]
-
-H -->|Attestations| N
-B --> S
-A --> S
-
-classDef core fill:#fff,stroke:#333,stroke-width:2px;
-classDef external fill:#fff,stroke:#666,stroke-width:1px,stroke-dasharray:5 5;
-
-class U,F,A,B,C,H,S,E,N core;
-```
+* **🤖 AI-Driven Discovery:** Dual-agent system where a *Main Agent* assists users in finding ideal hotels, while *Hotel Agents* (one per hotel) provide real-time data and custom interactions.
+* **🪙 NFT Bookings:** Every booking is represented by a **Booking NFT**, ensuring verifiable and transferable proof of reservation.
+* **✅ Proof of Stay NFTs:** Upon verified check-out, hotels mint **Proof of Stay NFTs**, allowing only real guests to leave reviews.
+* **💬 Agent-to-Agent Communication:** Uses **Hedera toolkit with google A2A** for secure, decentralized coordination between AI agents.
+* **📊 Hotel Dashboard:** Manage listings, confirm check-ins, and view booking histories.
+* **🌍 User Dashboard:** View all hotels, active bookings, AI chat, and NFT proofs in a single interface.
 
 ---
 
-## 🧩 Key Smart Contracts & Agents
+## 💡 Why Web3 over Web2
 
-| Component                 | Responsibility                                                   | Network |
-| ------------------------- | ---------------------------------------------------------------- | ------- |
-| **HotelRegistry**         | Registers hotels with metadata & IPFS snapshot.                  | Base    |
-| **BookingEscrow**         | Holds PYUSD payments until checkout verification.                | Base    |
-| **BookingNFT / ProofSBT** | Issues booking & proof-of-stay NFTs to guests.                   | Base    |
-| **AttestationService**    | Logs Hedera attestations for verified check-ins.                 | Hedera  |
-| **Main AI Agent**         | Conversational booking, price comparison, and query routing.     | Server  |
-| **Hotel Agents**          | Hotel-specific AI agents trained on hotel data & policy context. | Server  |
+Web2 booking platforms like Booking.com or Airbnb rely on centralized databases and intermediaries, creating issues like fake reviews, hidden fees, and lack of data ownership.
 
----
+**DeStay leverages Web3 to fix these problems:**
 
-## 🔄 Booking Lifecycle (Simplified Flow)
+* **True Ownership:** Users own their bookings as NFTs in their wallets.
+* **Trustless Authenticity:** Ratings are only allowed from wallets holding valid **Proof of Stay NFTs**.
+* **No Middlemen:** Smart contracts handle transactions directly between user and hotel.
+* **Transparent Reputation:** All bookings and reviews are on-chain and verifiable.
+* **Global Interoperability:** Integrates easily with DeFi, loyalty NFTs, or decentralized identity frameworks.
 
-1. **Hotel Registration**
-
-   * Hotel connects wallet → registers via smart contract → uploads metadata & policies → stored on IPFS.
-
-2. **User Discovery**
-
-   * User connects wallet → interacts with AI chat/voice assistant.
-   * AI retrieves hotel listings from TheGraph/DB & recommends options.
-
-3. **Booking & Payment**
-
-   * User approves PYUSD (one-time allowance).
-   * AI agent confirms price snapshot and executes `bookHotel()` on BookingEscrow.
-   * Booking NFT minted with snapshot details.
-
-4. **Check-in Verification**
-
-   * Hotel verifies NFT ownership.
-   * Hedera Agent Kit logs check-in attestation signed by hotel.
-   * Booking status updated onchain to `CHECKED_IN`.
-
-5. **Checkout & Proof of Stay**
-
-   * Hotel calls `confirmStay()` → escrow releases payment.
-   * Proof-of-Stay NFT minted (SBT style).
-   * Review unlocked post-stay.
+Web3 turns opaque booking systems into transparent, user-owned ecosystems — making trust a built-in feature, not a promise.
 
 ---
 
-## 🔐 Security & Trust Model
+## 🔗 Trust, Identity, and Automation
 
-* **Escrow Protection:** Funds locked until verified stay completion.
-* **Hedera Attestations:** Immutable proofs for check-in events.
-* **AI Transparency:** Logs agent decisions; user can revoke session keys.
-* **Session-limited Allowance:** Scoped, time-bound PYUSD approvals.
-* **Price Snapshots:** Each booking stores price and metadata hash.
+Every booking, confirmation, and review is validated through **Hedera smart contracts**, ensuring transparent settlement and authenticity. Hotels register their data once, which becomes the knowledge base for their **AI Hotel Agent**, stored securely in **Pinecone** for semantic retrieval.
+
+Each AI Agent operates autonomously:
+
+* The **Main Agent** handles user intents and finds suitable hotels.
+* The **Hotel Agent** provides personalized responses and manages bookings.
+* **Envio** (HyperIndex) automates event listening for NFT minting and verification.
 
 ---
 
-## 🧬 Sequence Diagram (Core Flow)
+### Core Flow
+
+1. User connects wallet and chats with the **Main Agent**.
+2. Main Agent queries relevant **Hotel Agents** for options.
+3. Once confirmed, smart contract executes booking and mints **Booking NFT**.
+4. Hotel later confirms check-in → mints **Proof of Stay NFT**.
+5. User can rate the hotel only if Proof NFT is verified.
+
+---
+
+## ⚙️ Technology Stack
+
+### 🔗 Blockchain & On-Chain Components
+
+* **Hedera Hashgraph & AgentKit:** Primary network for NFT minting, booking, and proof validation.
+* **Envio:** Event indexing and on-chain automation.
+* **Smart Contracts:** Handle booking logic, NFT minting, and settlement.
+
+### 🧠 AI & Data Layer
+
+* **LangChain:** Multi-agent orchestration for Main and Hotel Agents.
+* **Pinecone:** Vector storage for hotel data and embeddings.
+* **LLMs:** Power contextual chat, personalization, and negotiation.
+
+### 💻 Frontend
+
+* **React + Tailwind:** User-friendly and modern interface.
+* **Wallet Integration:** Hedera-compatible wallet connection.
+* **Real-time Chat:** AI-driven booking and payment support.
+
+---
+
+## 🧱 Core Components
+
+### 1️⃣ User Dashboard
+
+* Connect wallet and interact with AI.
+* Browse and filter hotels.
+* Manage active bookings.
+* View NFTs (Booking + Proof of Stay).
+* Chat with hotel-specific AI agents.
+
+### 2️⃣ Hotel Dashboard
+
+* Register and manage hotel data.
+* Review booking histories.
+* Confirm stays and mint Proof NFTs.
+* View on-chain reputation.
+
+---
+
+## 🧰 How It Works
 
 ```mermaid
 sequenceDiagram
-    participant U as User (Wallet)
-    participant A as AI Agent
-    participant B as BookingEscrow (Base)
-    participant H as Hedera Agent (Hotel)
-    participant N as Booking NFT Contract
-    participant V as Verify Attestation (Hedera)
-    
-    U->>A: Chat "Book 3-star hotel in Goa for Dec 21–24"
-    A->>A: Fetch options + recommend hotels
-    U->>A: Confirm booking
-    A->>U: Request PYUSD approval
-    U->>B: approve(PYUSD, BookingEscrow)
-    A->>B: bookHotel(hotelId, price, metadataHash)
-    B-->>N: Mint Booking NFT
-    U->>H: Present NFT QR for check-in
-    H->>V: Sign & submit Hedera attestation
-    V-->>B: Notify verified stay
-    H->>B: confirmStay(bookingId)
-    B-->>H: Release PYUSD to hotel
-    B-->>U: Mint Proof-of-Stay NFT
+    participant U as User
+    participant MA as Main Agent
+    participant HA as Hotel Agent
+    participant SC as Smart Contract
+    participant NFT as NFT System
+
+    U->>MA: "Find me a hotel near Goa under $100"
+    MA->>HA: Query available hotels
+    HA-->>MA: Return suitable options
+    MA->>U: Show curated hotel list
+    U->>MA: Confirm booking
+    MA->>SC: Execute booking
+    SC->>NFT: Mint Booking NFT to user
+    HA->>SC: Confirm stay
+    SC->>NFT: Mint Proof of Stay NFT
 ```
 
 ---
 
-## ⚙️ Tech Stack
+## 🔒 Security & Authenticity
 
-| Category            | Technology                                    |
-| ------------------- | --------------------------------------------- |
-| **Frontend**        | Next.js 15, React 19, TailwindCSS, ShadCN/UI  |
-| **AI Layer**        | OpenAI GPT, Contextual Retrieval, LangChain   |
-| **Blockchain (L1)** | Base (Escrow + Booking NFTs + PYUSD Payments) |
-| **Verification L2** | Hedera Hashgraph (Agent Kit, Attestations)    |
-| **Smart Contracts** | Solidity + Foundry                            |
-| **Storage**         | IPFS + PostgreSQL                             |
-| **Indexing**        | Envio / TheGraph                              |
-| **Deployment**      | Docker, Vercel (Frontend), Render (Backend)   |
+* **Smart Contract Security:** All booking logic verified on-chain.
+* **NFT-based Access Control:** Only Proof holders can rate.
+* **Liveness Checks:** AI validation ensures stay confirmations are authentic.
+* **Immutable Reviews:** Stored permanently and transparently on Hedera.
 
 ---
 
-## 🧰 Folder Structure
+## 🌍 Impact & Why It Matters
 
-```
-```
+The hospitality industry depends heavily on centralized intermediaries that charge high fees and control access to customer data. **DeStay removes these barriers** by letting users and hotels interact directly — with **AI for personalization** and **Web3 for trust**.
 
----
+This enables:
 
-## ⚙️ Setup & Installation
-
-### 1️⃣ Clone Repository
-
-```bash
-git clone https://github.com/appajidheeraj/veritravel.git
-cd veritravel
-```
-
-### 2️⃣ Install Dependencies
-
-```bash
-cd apps/frontend && npm install
-cd ../../services/ai-agent && npm install
-```
-
-### 3️⃣ Environment Configuration
-
-Create `.env` files for each service:
-
-```bash
-OPENAI_API_KEY=sk-xxxx
-BASE_RPC_URL=https://base-mainnet.infura.io/v3/xxxx
-HEDERA_ACCOUNT_ID=0.0.xxxx
-HEDERA_PRIVATE_KEY=302e0201...
-PYUSD_TOKEN_ADDRESS=0x...
-```
-
-### 4️⃣ Start Services
-
-```bash
-npm run dev        # Frontend
-nodemon server.js  # Each backend microservice
-```
+* Real ownership of travel credentials.
+* Authentic, verifiable reviews.
+* Low-cost transactions and bookings.
+* A transparent, fair, global travel ecosystem.
 
 ---
 
-## 🧾 Data Flow Diagram
+## 🛠️ How It’s Made
 
-```
-User ─▶ Chat UI ─▶ AI Agent ─▶ Escrow Contract ─▶ NFT Mint ─▶ Hedera Attestation
-                                                  │
-                                                  ▼
-                                             Proof-of-Stay NFT
-```
-
----
-
-## 💬 Demo Script (2-Minute Flow)
-
-1. Hotel connects wallet → registers on dashboard → uploads policy files.
-2. User asks: “Book me a 3-star hotel in Goa for Dec 21–24 under $100.”
-3. AI displays 3 hotel options with prices → user selects one.
-4. User approves PYUSD → AI executes booking → Booking NFT minted.
-5. User shows NFT QR on arrival → hotel verifies via Hedera → check-in verified.
-6. After checkout → PYUSD released → Proof-of-Stay NFT minted.
-7. User leaves review (allowed only if proof NFT exists).
+* **AI Orchestration:** LangChain-based multi-agent system.
+* **Blockchain Logic:** Smart contracts on Hedera for NFT minting and escrow.
+* **Automation:** Envio for event-based NFT issuance.
+* **Frontend:** React dashboard for unified booking and management.
+* **Data Layer:** Pinecone embeddings for semantic hotel search.
 
 ---
 
-## 🔮 Roadmap
+## 🚀 Future Scope
 
-* [ ] **Multi-chain support (Base + Hedera dual)**
-* [ ] **AI voice booking assistant (VeriVoice)**
-* [ ] **Dynamic pricing based on occupancy data**
-* [ ] **DAO-powered dispute & review system**
-* [ ] **Hotel-level analytics & NFT-based loyalty system**
-
----
-
-## 👨‍💻 Author
-
-> Building verifiable, AI-driven Web3 experiences 🌍✨
-
+* **Loyalty NFTs:** Reward frequent travelers and verified stays.
+* **AI Travel Layer:** Integrate flights, events, and transport under one ecosystem.
+* **DAO Governance:** Hotel and user community-led reputation and listings.
+* **Cross-chain Interoperability:** Expand beyond Hedera for global reach.
 
 ---
 
-## 📜 License
+## 🙏 Acknowledgments
 
-This project is licensed under the **MIT License**.
+* **Hedera Hashgraph and AgentKit** for decentralized infrastructure.
+* **LangChain & Pinecone** for enabling powerful AI orchestration.
+* **Envio (HyperIndex)** for seamless on-chain event automation.
+* **ETHOnline Hackathon** for the platform to build and share innovation.
+* **Google A2A** for communication between agents.
 
 ---
 
-⭐ **If VeriTravel inspires you, give it a star and join the journey toward verifiable travel!**
+<div align="center">
+
+**🏨 DeStay — Where AI Agents Meet Decentralized Travel.**
+*Built with ❤️ for ETHOnline 2025*
+
+</div>
