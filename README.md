@@ -189,7 +189,7 @@ This enables:
 
 <div align="center">
 
-**🏨 DeStay — Where AI Agents Meet Decentralized Travel.**
+**🏨 VeriTravel — Where AI Agents Meet Decentralized Travel.**
 *Built with ❤️ for ETHOnline 2025*
 
 </div>
