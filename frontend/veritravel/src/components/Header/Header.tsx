@@ -25,7 +25,7 @@ export default function Header({ activeView = "hotel" }: HeaderProps) {
       <div className="flex w-[90%] max-w-6xl items-center justify-between rounded-full border border-black/10 bg-[#E7E3D5] px-6 py-3 shadow-md backdrop-blur-sm">
         <div className="flex items-center space-x-2">
           <span className="font-vogue text-2xl font-bold tracking-tight">
-            Trip<span className="text-gray-800">DAO</span>
+            Veri<span className="text-gray-800">Travel</span>
           </span>
         </div>
 
