@@ -54,6 +54,12 @@ export interface UnifiedAgentResponse {
         confidence?: number;
         requiresRouting?: boolean;
         suggestedActions?: string[];
+        bookingDetails?: {
+            hotelId: string;
+            checkinUnix: number;
+            checkoutUnix: number;
+            totalValueWei: string;
+        } | null;
     } | null;
 }
 
@@ -249,7 +255,7 @@ export class RoutingAgentExecutor {
             let params;
             try {
                 const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-                const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+                const cleanContent = content.replace(/```\n?/g, '').trim();
                 params = JSON.parse(cleanContent);
             } catch (e) {
                 console.error('Failed to parse LLM response as JSON:', response.content);
@@ -275,29 +281,29 @@ export class RoutingAgentExecutor {
 
             // Ask LLM to classify and structure the response
             const classificationPrompt = `
-                context: ${context}
+                    context: ${context}
 
-                Available hotels in database: ${hotelNamesContext}
+                    Available hotels in database: ${hotelNamesContext}
 
-                User query: "${messageText}"
+                    User query: "${messageText}"
 
-                Analyze this query and return a JSON response following the UnifiedAgentResponse schema.
-                
-                Determine the correct responseType:
-                - "conversation": general chat, greetings, travel info (no hotel search or specific hotel mention)
-                - "hotel_search": user wants to find/search for hotels (includes "show all hotels", "list hotels", "find hotels")
-                - "hotel_specific": user is asking about ONE specific hotel by name
-                - "booking_confirmation": user confirms they want to book
+                    Analyze this query and return a JSON response following the UnifiedAgentResponse schema.
+                    
+                    Determine the correct responseType:
+                    - "conversation": general chat, greetings, travel info (no hotel search or specific hotel mention)
+                    - "hotel_search": user wants to find/search for hotels (includes "show all hotels", "list hotels", "find hotels")
+                    - "hotel_specific": user is asking about ONE specific hotel by name
+                    - "booking_confirmation": user confirms they want to book
 
-                IMPORTANT: If the user asks for "all hotels", "show hotels", "list hotels" with no specific criteria,
-                this is STILL a hotel_search, not a conversation. Return empty search params to show all hotels.
-                
-                If responseType is "hotel_specific", extract the hotel name from the query and match it with available hotels to get the ID.
-                
-                If responseType is "booking_confirmation", extract the target hotel name from the query or context.
-                
-                Return ONLY valid JSON, no additional text.
-            `;
+                    IMPORTANT: If the user asks for "all hotels", "show hotels", "list hotels" with no specific criteria,
+                    this is STILL a hotel_search, not a conversation. Return empty search params to show all hotels.
+                    
+                    If responseType is "hotel_specific", extract the hotel name from the query and match it with available hotels to get the ID.
+                    
+                    If responseType is "booking_confirmation", extract the target hotel name from the query or context.
+                    
+                    Return ONLY valid JSON, no additional text.
+                `;
 
             const classificationResponse = await llm.invoke([
                 { role: "system", content: this.systemPrompt },
@@ -462,6 +468,7 @@ export class RoutingAgentExecutor {
                 if(!targetHotelName && classification.targetHotelName){
                     targetHotelName = classification.targetHotelName;
                 }
+                
                 if(targetHotelName){
                     const matchedHotel = allHotels.find(h => 
                         h.name.toLowerCase().includes(targetHotelName.toLowerCase()) ||
@@ -469,9 +476,76 @@ export class RoutingAgentExecutor {
                     );
                     
                     if(matchedHotel){
-                        classification.targetHotelId = `hotel-${matchedHotel.id}`;
-                        classification.targetHotelName = matchedHotel.name;
-                        classification.message = `Confirming your booking for ${matchedHotel.name}... Routing to the hotel agent to complete.`;
+                        // Extract dates using LLM
+                        const dateExtractPrompt = `
+                            From this context, extract check-in and check-out dates for the booking.
+                            Dates can be in natural language (e.g., "tomorrow", "next week", "from Oct 1 to Oct 5").
+                            Return dates in YYYY-MM-DD format if possible, or null if not specified.
+                            Assume current date is ${new Date().toISOString().split('T')[0]} for relative dates.
+                            Return ONLY JSON: {"checkin": "YYYY-MM-DD or null", "checkout": "YYYY-MM-DD or null"}
+                            Context: ${fullContext}
+                        `;
+                        const dateResponse = await llm.invoke([{ role: 'user', content: dateExtractPrompt }]);
+                        
+                        let checkinDate: string | null = null;
+                        let checkoutDate: string | null = null;
+                        try {
+                            const dateContent = typeof dateResponse.content === 'string' ? dateResponse.content : JSON.stringify(dateResponse.content);
+                            const cleanDate = dateContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+                            const dates = JSON.parse(cleanDate);
+                            checkinDate = dates.checkin;
+                            checkoutDate = dates.checkout;
+                        } catch (e) {
+                            console.error('Failed to parse dates:', dateResponse.content);
+                        }
+
+                        // Convert to UNIX timestamps (milliseconds)
+                        let checkinUnix: number | null = null;
+                        let checkoutUnix: number | null = null;
+                        if (checkinDate) {
+                            checkinUnix = new Date(checkinDate).getTime();
+                        }
+                        if (checkoutDate) {
+                            checkoutUnix = new Date(checkoutDate).getTime();
+                        }
+
+                        // Calculate total value if dates are available
+                        let totalValueWei: string | null = null;
+                        if (checkinUnix && checkoutUnix && matchedHotel.pricePerNight) {
+                            const nights = Math.ceil((checkoutUnix - checkinUnix) / (1000 * 60 * 60 * 24));
+                            if (nights > 0) {
+                                const pricePerNightNum = parseInt(matchedHotel.pricePerNight, 10);
+                                totalValueWei = (pricePerNightNum * nights).toString();
+                            }
+                        }
+
+                        // If dates are missing, fallback message
+                        if (!checkinUnix || !checkoutUnix) {
+                            classification.message = `Great! I'd love to confirm your booking for ${matchedHotel.name}. Please provide check-in and check-out dates to proceed.`;
+                            classification.targetHotelId = `hotel-${matchedHotel.id}`;
+                            classification.targetHotelName = matchedHotel.name;
+                        } else {
+                            // Direct booking details for frontend
+                            const bookingDetails = {
+                                hotelId: `hotel-${matchedHotel.id}`,
+                                checkinUnix,
+                                checkoutUnix,
+                                totalValueWei: totalValueWei || matchedHotel.pricePerNight // Fallback to per night if no total
+                            };
+                            classification.message = JSON.stringify(bookingDetails);
+                            classification.targetHotelId = `hotel-${matchedHotel.id}`;
+                            classification.targetHotelName = matchedHotel.name;
+                            classification.metadata = {
+                                ...classification.metadata,
+                                bookingDetails
+                            };
+                        }
+
+                        classification.metadata = {
+                            ...classification.metadata,
+                            requiresRouting: false, // Do not route; send directly to frontend
+                            suggestedActions: ['Provide booking details', 'Confirm payment']
+                        };
                     }else {
                         classification.targetHotelId = null;
                         classification.targetHotelName = null;
@@ -485,7 +559,7 @@ export class RoutingAgentExecutor {
                 
                 classification.metadata = {
                     ...classification.metadata,
-                    requiresRouting: !!classification.targetHotelId,
+                    requiresRouting: false, // Ensure no routing for booking_confirmation
                     suggestedActions: ['Provide booking details', 'Confirm payment']
                 };
             }
@@ -540,7 +614,8 @@ export class RoutingAgentExecutor {
             console.log(`[${taskId}] Unified response:`, result);
 
 
-            if ((result.responseType === 'hotel_specific' || result.responseType === 'booking_confirmation') && 
+            // Only route for hotel_specific (exclude booking_confirmation)
+            if (result.responseType === 'hotel_specific' && 
                 result.targetHotelId && 
                 result.metadata?.requiresRouting) {
                 console.log(`[${taskId}] Routing to API Gateway for ${result.targetHotelName} (${result.targetHotelId})`);
@@ -604,6 +679,7 @@ export class RoutingAgentExecutor {
             }
 
             // Send the unified response as JSON (for non-routed or failed routing cases)
+            // For booking_confirmation, the message is already the JSON details
             const successUpdate: TaskStatusUpdateEvent = {
                 kind: 'status-update',
                 taskId,

@@ -31,6 +31,7 @@
     "dotenv": "^17.2.3",
     "ethers": "^6.15.0",
     "express": "^5.1.0",
+    "hashconnect": "^3.0.14",
     "hedera-agent-kit": "^3.4.0",
     "langchain": "^0.3.36",
     "node-fetch": "^3.3.2",
