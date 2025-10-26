@@ -41,21 +41,38 @@ export interface TravelAgentConfig{
 function createHotelInfoTool(llm: ChatGoogleGenerativeAI, config: TravelAgentConfig, pinecone: PineconeClient){
     return new DynamicStructuredTool({
         name: 'get_hotel_info',
-        description: 'Retrieve hotel details (e.g., pool hours, checkout time). Input: question string and hotelId.',
+        description: 'Retrieve hotel details (e.g., pool hours, checkout time, amenities, location, policies). Input: question string and hotelId.',
         schema: z.object({
             question: z.string().describe('The question about hotel information'),
             hotelId: z.number().describe('The hotel ID to query information for')
         }),
         func: async ({ question, hotelId }) => {
+            console.log(`\n[get_hotel_info] Question: "${question}", Hotel ID: ${hotelId}`);
+            
             try {
+                // Validate inputs
+                if (!question || question.trim() === '') {
+                    throw new Error('Question cannot be empty');
+                }
+                
+                if (hotelId === null || hotelId === undefined) {
+                    throw new Error('Hotel ID is required');
+                }
+
+                // Initialize embeddings
                 const embeddings = new GoogleGenerativeAIEmbeddings({
                     model: 'text-embedding-004',
                     apiKey: process.env.GOOGLE_API_KEY!,
                 });
 
+                // Setup Pinecone
                 const namespace = `hotel-${hotelId}`;
-                const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX_NAME || 'hotel-bookings');
+                const indexName = process.env.PINECONE_INDEX_NAME || 'hotel-bookings';
+                console.log(`[get_hotel_info] Using namespace: ${namespace}, index: ${indexName}`);
                 
+                const pineconeIndex = pinecone.Index(indexName);
+                
+                // Create vector store
                 const vectorStore = await PineconeStore.fromExistingIndex(
                     embeddings,
                     {
@@ -64,30 +81,80 @@ function createHotelInfoTool(llm: ChatGoogleGenerativeAI, config: TravelAgentCon
                     }
                 );
                 
+                // Create retriever (without filter initially for better retrieval)
                 const retriever = vectorStore.asRetriever({
-                    k: 3,
-                    filter: { hotelId }
+                    k: 5, // Increased from 3 for better coverage
                 });
 
-                const ragPrompt = ChatPromptTemplate.fromTemplate(`
-                    You are ${config.name}, an AI travel agent for hotel bookings on Hedera.
-                    Basic info: ${config.basicInfo}
-                    Answer the user's question based ONLY on the following retrieved context for Hotel ID ${hotelId}. 
-                    If the answer isn't in the context, say so.
+                // Retrieve documents
+                console.log(`[get_hotel_info] Retrieving documents...`);
+                const rawDocs = await retriever.getRelevantDocuments(question);
+                console.log(`[get_hotel_info] Retrieved ${rawDocs.length} documents`);
+                
+                if (rawDocs.length === 0) {
+                    console.warn(`[get_hotel_info] No documents found for hotel ${hotelId}`);
+                    return `I don't have any information about hotel ${hotelId} in my database. Please ensure hotel data has been uploaded to Pinecone namespace "${namespace}".`;
+                }
 
-                    Context:
-                    {context}
+                // CRITICAL FIX: Extract content from metadata.content if pageContent is empty
+                const contextParts: string[] = [];
+                
+                rawDocs.forEach((doc, idx) => {
+                    let content = doc.pageContent;
+                    
+                    // If pageContent is empty or just whitespace, use metadata.content
+                    if ((!content || content.trim() === '') && doc.metadata.content) {
+                        content = doc.metadata.content;
+                        console.log(`[get_hotel_info] Doc ${idx + 1}: Using metadata.content (${content.length} chars)`);
+                    } else {
+                        console.log(`[get_hotel_info] Doc ${idx + 1}: Using pageContent (${content.length} chars)`);
+                    }
+                    
+                    // Only add non-empty content
+                    if (content && content.trim() !== '') {
+                        contextParts.push(content);
+                    }
+                });
 
-                    Question: {input}
-                `);
+                if (contextParts.length === 0) {
+                    console.warn(`[get_hotel_info] All retrieved documents are empty`);
+                    return `I retrieved documents but they appear to be empty. Please check the data upload process for hotel ${hotelId}.`;
+                }
 
-                const documentChain = await createStuffDocumentsChain({ llm, prompt: ragPrompt });
-                const ragChain = await createRetrievalChain({ retriever, combineDocsChain: documentChain });
+                // Build the full context string
+                const fullContext = contextParts.join('\n\n');
+                console.log(`[get_hotel_info] Built context with ${contextParts.length} documents, total ${fullContext.length} chars`);
 
-                const result = await ragChain.invoke({ input: question });
-                return result.answer;
+                // Create prompt and call LLM directly
+                const promptText = `You are ${config.name}, an AI travel agent for hotel bookings on Hedera.
+                Basic info: ${config.basicInfo}
+
+                Answer the user's question based ONLY on the following information about Hotel ID ${hotelId}. 
+                Be specific and helpful. If the answer is not clearly in the information provided, say "I don't have that specific information in my database."
+
+                Hotel Information:
+                ${fullContext}
+
+                Question: ${question}
+
+                Answer:`;
+
+                console.log(`[get_hotel_info] Calling LLM with ${promptText.length} char prompt...`);
+                const response = await llm.invoke(promptText);
+                
+                const answer = typeof response.content === 'string' 
+                    ? response.content 
+                    : JSON.stringify(response.content);
+                
+                console.log(`[get_hotel_info] Success! Answer length: ${answer.length} chars`);
+                return answer;
+                
             } catch (error) {
-                return `Error retrieving hotel info: ${error}`;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                console.error(`[get_hotel_info] ERROR:`, error);
+                console.error(`[get_hotel_info] Error details:`, errorMessage);
+                
+                return `Error retrieving hotel information: ${errorMessage}. Please check the logs for details.`;
             }
         }
     });
@@ -127,7 +194,7 @@ function createContractCallTool(client: Client, contractId: ContractId){
                     }
 
                     if(functionName === 'bookHotel'){
-                        if(!hotelId || !checkInDate || !checkOutDate){
+                        if((hotelId === null || hotelId === undefined)|| !checkInDate || !checkOutDate){
                             throw new Error('bookHotel requires hotelId, checkInDate, and checkOutDate');
                         }
                         tx.setFunction('bookHotel', new ContractFunctionParameters()
@@ -155,7 +222,7 @@ function createContractCallTool(client: Client, contractId: ContractId){
                         if(!userAddress) throw new Error('getUserBookings requires userAddress');
                         query.setFunction('getUserBookings', new ContractFunctionParameters().addAddress(userAddress));
                     } else if(functionName === 'getHotelBookings'){
-                        if(!hotelId) throw new Error('getHotelBookings requires hotelId');
+                        if(hotelId === null || hotelId === undefined) throw new Error('getHotelBookings requires hotelId');
                         query.setFunction('getHotelBookings', new ContractFunctionParameters().addUint256(hotelId));
                     }
                     
@@ -187,7 +254,7 @@ function createSubmitSignedTxTool(client: Client, contractId: ContractId, bookin
         }),
         func: async ({ signedBytes, hotelId, checkInDate, checkOutDate, amountInTinybars }) =>{
             try{
-                if(!signedBytes || !hotelId || !checkInDate || !checkOutDate){
+                if(!signedBytes || (hotelId === null || hotelId === undefined) || !checkInDate || !checkOutDate){
                     throw new Error('Missing required fields: signedBytes, hotelId, checkInDate, checkOutDate');
                 }
                 const signedTx = ContractExecuteTransaction.fromBytes(Buffer.from(signedBytes, 'base64'));

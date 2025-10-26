@@ -60,7 +60,7 @@ const agentRegistry: AgentRegistryEntry[] = [
             hederaPrivateKey: process.env.HEDERA_PRIVATE_KEY!,
             bookingTopicId: process.env.BOOKING_TOPIC_ID!,
             escrowContractId: process.env.ESCROW_CONTRACT_ID!,
-            hotelId: 1,
+            hotelId: 0,
             agentBaseUrl: 'http://localhost:41241',
         }
     },
