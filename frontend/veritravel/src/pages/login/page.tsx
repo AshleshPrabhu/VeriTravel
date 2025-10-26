@@ -108,9 +108,6 @@ export default function LoginPage() {
         onSubmit={handleHotelSubmit}
         title="Provide hotel details"
         submitLabel="Enter hotel ops"
-        isRegistering={isRegistering}
-        progressMessage={progressMessage}
-        registrationError={registrationError}
       />
     </div>
   )

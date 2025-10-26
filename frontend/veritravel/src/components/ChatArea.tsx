@@ -29,25 +29,24 @@ import {
   Suggestion,
   Suggestions,
 } from "@/components/ai-elements/suggestion";
-import { GlobeIcon, Hotel, MapPin, Star } from "lucide-react";
+import { GlobeIcon, Hotel, MapPin, Star, Wallet } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { nanoid } from "nanoid";
 import agentService from "@/utils/agentService";
 import type { UnifiedAgentResponse } from "@/utils/agentService";
 
-
-
 // Types
 type MessageType = {
   key: string;
   from: "user" | "assistant";
   sources?: { href: string; title: string }[];
-  versions: { id: string; content: string; agentResponse?: UnifiedAgentResponse }[];
+  versions: { id: string; content: string; agentResponse?: UnifiedAgentResponse; transactionData?: any }[];
   reasoning?: { content: string; duration: number };
   avatar: string;
   name: string;
 };
+
 
 // Initial messages
 const initialMessages: MessageType[] = [
@@ -121,8 +120,117 @@ const HotelCard = ({ hotel }: { hotel: any }) => (
   </div>
 );
 
+// Transaction Button Component
+const TransactionButton = ({ 
+  transactionData, 
+  onSign 
+}: { 
+  transactionData: any;
+  onSign: (signedTx: string) => void;
+}) => {
+  const [signing, setSigning] = useState(false);
+
+  const handleSign = async () => {
+    try {
+      setSigning(true);
+      
+      // Decode the base64 transaction
+      const txBytes = Uint8Array.from(atob(transactionData.unsignedTxBase64), c => c.charCodeAt(0));
+      
+      // Get the provider
+      const ethereum = window.ethereum;
+      if (!ethereum) {
+        toast.error("MetaMask not found");
+        return;
+      }
+
+      // Request signature from wallet
+      // Note: This is a simplified example. You'll need to adapt based on how Hedera transactions work
+      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+      const account = accounts[0];
+
+      // For Hedera, you might need to use a different signing method
+      // This is a placeholder - adjust based on your actual Hedera integration
+      const signature = await ethereum.request({
+        method: 'personal_sign',
+        params: [Array.from(txBytes).map(b => b.toString(16).padStart(2, '0')).join(''), account],
+      });
+
+      // Convert signature to base64
+      const signedTxBase64 = btoa(String.fromCharCode(...Array.from(new Uint8Array(signature))));
+      
+      toast.success("Transaction signed!");
+      onSign(signedTxBase64);
+      
+    } catch (error: any) {
+      console.error("Error signing transaction:", error);
+      toast.error(`Failed to sign: ${error.message}`);
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleSign}
+      disabled={signing}
+      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+    >
+      <Wallet size={18} />
+      {signing ? "Signing..." : "Sign Transaction with Wallet"}
+    </button>
+  );
+};
+
 // Agent Response Renderer
-const AgentResponseRenderer = ({ response }: { response: UnifiedAgentResponse }) => {
+const AgentResponseRenderer = ({ 
+  response, 
+  transactionData,
+  onTransactionSigned 
+}: { 
+  response: UnifiedAgentResponse;
+  transactionData?: any;
+  onTransactionSigned?: (signedTx: string) => void;
+}) => {
+  // Check if response contains transaction data (base64 bytes)
+  const hasTransaction = response.message.includes('base64 bytes:') || 
+                         response.message.includes('unsignedTxBase64') ||
+                         transactionData;
+
+  if (hasTransaction && onTransactionSigned) {
+    // Extract transaction data from message
+    let txData = transactionData;
+    if (!txData) {
+      const base64Match = response.message.match(/`([A-Za-z0-9+/=]+)`/);
+      if (base64Match) {
+        txData = { unsignedTxBase64: base64Match[1] };
+      }
+    }
+
+    return (
+      <div>
+        <p className="mb-4 text-gray-700">
+          {response.responseType === 'booking_confirmation' 
+            ? `Your booking at ${response.targetHotelName || 'the hotel'} is ready!`
+            : response.message.split('base64 bytes:')[0].trim()
+          }
+        </p>
+        
+        {txData && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-gray-700 mb-3">
+              Please confirm and sign this transaction with your connected wallet to complete your booking.
+            </p>
+            <TransactionButton 
+              transactionData={txData}
+              onSign={onTransactionSigned}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (response.responseType === 'hotel_search' && response.hotels && response.hotels.length > 0) {
     return (
       <div>
@@ -152,7 +260,8 @@ const AgentResponseRenderer = ({ response }: { response: UnifiedAgentResponse })
 // Main Component
 const IntegratedChatArea = () => {
   const [walletAddress, setWalletAddress] = useState<string|null>(null);
-const getMetaMaskProvider = () => {
+  
+  const getMetaMaskProvider = () => {
     if (window.ethereum?.providers) {
       return (window.ethereum.providers as Array<{ isMetaMask?: boolean }>).find((p) => p.isMetaMask);
     }
@@ -206,18 +315,18 @@ const getMetaMaskProvider = () => {
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       setWalletAddress(address);
-      console.log(address);
-
-
-      
+      console.log("Wallet connected:", address);
+      toast.success(`Wallet connected: ${address.slice(0, 6)}...${address.slice(-4)}`);
     } catch (error) {
       console.error("Error connecting wallet:", error);
+      toast.error("Failed to connect wallet");
     } 
   }
 
   useEffect(()=>{
     connectWallet()
   },[])
+
   const [text, setText] = useState("");
   const [status, setStatus] = useState<
     "submitted" | "streaming" | "ready" | "error"
@@ -243,6 +352,71 @@ const getMetaMaskProvider = () => {
     setMessages((prev) => [...prev, userMessage]);
     return userMessage.key;
   }, []);
+
+  const handleTransactionSigned = useCallback(async (signedTxBase64: string, messageId: string) => {
+    // Send the signed transaction back to the agent
+    const confirmMessage = `Signed transaction: ${signedTxBase64}`;
+    
+    // Add user confirmation message
+    addUserMessage("✅ Transaction signed");
+    
+    // Create placeholder for agent's confirmation response
+    const confirmMessageId = nanoid();
+    const confirmMessage2: MessageType = {
+      key: nanoid(),
+      from: "assistant",
+      versions: [{ 
+        id: confirmMessageId, 
+        content: "Processing your signed transaction..." 
+      }],
+      avatar: "https://github.com/veritravel.png",
+      name: "VeriTravel Agent",
+    };
+
+    setMessages((prev) => [...prev, confirmMessage2]);
+    setStatus("streaming");
+
+    // Send to agent
+    try {
+      await agentService.sendMessage(
+        confirmMessage,
+        (agentResponse, isFinal) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.versions.some((v) => v.id === confirmMessageId)
+                ? {
+                    ...msg,
+                    versions: msg.versions.map((v) =>
+                      v.id === confirmMessageId
+                        ? { 
+                            ...v, 
+                            content: agentResponse.message,
+                            agentResponse 
+                          }
+                        : v
+                    ),
+                  }
+                : msg
+            )
+          );
+
+          if (isFinal) {
+            setStatus("ready");
+            toast.success("Booking confirmed!");
+          }
+        },
+        (error) => {
+          console.error("Agent error:", error);
+          toast.error("Failed to confirm booking");
+          setStatus("error");
+        }
+      );
+    } catch (error) {
+      console.error("Error sending signed transaction:", error);
+      toast.error("Failed to send signed transaction");
+      setStatus("error");
+    }
+  }, [addUserMessage]);
 
   const handleSubmit = async (message: PromptInputMessage) => {
     if (status === "streaming") {
@@ -343,6 +517,16 @@ const getMetaMaskProvider = () => {
 
   return (
     <div className="relative flex flex-col h-full min-h-0 w-full overflow-hidden bg-[#E7E3D5] text-black">
+      {/* Wallet Status Bar */}
+      {walletAddress && (
+        <div className="shrink-0 bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center gap-2 text-sm">
+          <Wallet size={16} className="text-blue-600" />
+          <span className="text-gray-700">
+            Connected: {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+          </span>
+        </div>
+      )}
+
       {/* Scrollable Conversation Area */}
       <div className="flex-1 overflow-y-auto px-4 pt-6 pb-24">
         <Conversation>
@@ -358,7 +542,13 @@ const getMetaMaskProvider = () => {
                       <div>
                         <MessageContent>
                           {version.agentResponse ? (
-                            <AgentResponseRenderer response={version.agentResponse} />
+                            <AgentResponseRenderer 
+                              response={version.agentResponse}
+                              transactionData={version.transactionData}
+                              onTransactionSigned={(signedTx) => 
+                                handleTransactionSigned(signedTx, version.id)
+                              }
+                            />
                           ) : (
                             <Response>{version.content}</Response>
                           )}
